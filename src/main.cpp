@@ -752,8 +752,8 @@ void * mt_worker(void * data)
 				}
 				pRecord->tag = TAG_NORMAL;
 				pRecord->idx = cMatrix::findAdapter(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n);
-				if( (minEndQual > 0) && (pRecord->idx.pos == pRecord->seq.n) && (pRecord->qual.n > 0) ){ // not found
-					pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
+				if( (minEndQual > 0) && (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){ // not found
+					pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
 				}
 			}
 
@@ -796,6 +796,9 @@ void * mt_worker(void * data)
 				if(pos > maxLen){
 					pStats->nLong++;
 					continue;
+				}
+				if(pos < 0){
+					pos = 0;
 				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
@@ -939,12 +942,12 @@ void * mt_worker2(void * data)
 							pRecord->tag = TAG_BLURRY;
 						}
 					}
-					if( (minEndQual > 0) && (pRecord->tag == TAG_NORMAL) ){ // trimmed by quality
-						if(pRecord->qual.n > 0)
-							pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
-						if(pRecord2->qual.n > 0)
-							pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, pRecord2->qual.n, minEndQual);
-					}
+				}
+				if( (minEndQual > 0) && (pos > 0) && (pRecord->tag == TAG_NORMAL) ){ // trimmed by quality
+					if(pRecord->qual.n > 0)
+						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pos, pRecord->qual.n), minEndQual);
+					if(pRecord2->qual.n > 0)
+						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pos, pRecord2->qual.n), minEndQual);
 				}
 			}
 
@@ -1146,6 +1149,12 @@ void * mt_worker3(void * data)
 								pRecord->tag = TAG_CONTAMINANT;
 							}
 						}
+						if(minEndQual > 0){
+							if(pRecord->qual.n > 0)
+								pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
+							if(pRecord2->qual.n > 0)
+								pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, pRecord2->qual.n, minEndQual);
+						}
 					}
 					else{
 						if( (pRecord->idx.bc < 0) && (pRecord2->idx.bc < 0) ){ // case D
@@ -1164,11 +1173,33 @@ void * mt_worker3(void * data)
 							if(pRecord->idx.bc < 0){ // case B
 								if( (pRecord2->idx.pos >= minLen) && (pRecord2->seq.n >= rLen) && (pRecord2->qual.n >= qLen) ){
 									pRecord->idx = cMatrix::mergePE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, pRecord2->idx.pos, cMatrix::junctionLengths[pRecord2->idx.bc]);
+									if(minEndQual > 0){
+										int pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s + pRecord2->idx.pos, pRecord->idx.pos - pRecord->seq.n, minEndQual);
+										if(pos != pRecord->idx.pos - pRecord->seq.n){
+											if(pos == 0){
+												pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
+											}
+											else{
+												pRecord->idx.pos = pRecord->seq.n + pos;
+											}
+										}
+									}
 								}
 							}
 							else if(pRecord2->idx.bc < 0){ // case C
 								if( (pRecord->idx.pos >= minLen) && (pRecord->seq.n >= rLen) && (pRecord->qual.n >= qLen) ){
 									pRecord2->idx = cMatrix::mergePE(pRecord2->seq.s, pRecord->seq.s, rLen, (uchar *)pRecord2->qual.s, (uchar *)pRecord->qual.s, qLen, pRecord->idx.pos, cMatrix::junctionLengths[pRecord->idx.bc]);
+									if(minEndQual > 0){
+										int pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s + pRecord->idx.pos, pRecord2->idx.pos - pRecord2->seq.n, minEndQual);
+										if(pos != pRecord2->idx.pos - pRecord2->seq.n){
+											if(pos == 0){
+												pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, pRecord2->qual.n, minEndQual);
+											}
+											else{
+												pRecord2->idx.pos = pRecord2->seq.n + pos;
+											}
+										}
+									}
 								}
 							}
 						}

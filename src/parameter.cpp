@@ -40,7 +40,7 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.115";
+const char * VERSION = "0.1.116";
 const char * DATE = "July 9, 2014";
 const char * AUTHOR = "Hongshan Jiang";
 
@@ -549,12 +549,11 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			minAverageQual = atoi(argv[i]);
 			break;
 		case 'l':
-			if(argv[i][0] < '0' || argv[i][0] > '9'){
+			if( (argv[i][0] < '0' || argv[i][0] > '9') && (argv[i][0] != '-') ){
 				iRet = -3;
 				break;
 			}
 			minLen = atoi(argv[i]);
-			if(minLen < 0) minLen = 0;
 			break;
 		case 'L':
 			if(argv[i][0] < '0' || argv[i][0] > '9'){
