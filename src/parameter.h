@@ -96,7 +96,7 @@ public:
 
 private:
 	char * occOfLastDot(char * str);
-	bool ReadFasta(const char * fileName, vector<string> & sequences);
+	int ReadFasta(const char * fileName, vector<string> & sequences);
 
 public:
 	cParameter();

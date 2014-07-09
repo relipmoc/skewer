@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.114";
-const char * DATE = "March 18, 2014";
+const char * VERSION = "0.1.115";
+const char * DATE = "July 9, 2014";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -98,11 +98,13 @@ int color_sprintf(int colorCode, char *str, const char *format, ...)
 	return iRet;
 }
 
-void color_fprintf_sequences(int colorCode, FILE *stream, vector<string> &sequences)
+void color_fprintf_sequences(int colorCode, FILE *stream, vector<string> &sequences, char leading)
 {
 	vector<string>::iterator it_seq;
-	for(it_seq=sequences.begin(); it_seq!=sequences.end(); it_seq++){
-		color_fprintf(colorCode, stream, "\t%s\n", (*it_seq).c_str());
+	int i;
+	for(i=1,it_seq=sequences.begin(); it_seq!=sequences.end(); it_seq++,i++){
+		fprintf(stream, "%c%02d:\t", leading, i);
+		color_fprintf(colorCode, stream, "%s\n", (*it_seq).c_str());
 	}
 }
 
@@ -157,48 +159,63 @@ char * cParameter::occOfLastDot	(char * str)
 	return (ret != NULL) ? ret : str;
 }
 
-bool cParameter::ReadFasta(const char * fileName, vector<string> & sequences)
+int cParameter::ReadFasta(const char * fileName, vector<string> & sequences)
 {
 	char * line = NULL;
 	size_t alloc;
 	FILE * fp = fopen(fileName, "r");
 	if(fp == NULL)
-		return false;
+		return -1;
+	int iRet = 0;
 	int len;
-	int no = -1;
+	int no = 0;
 	string seq;
 	while( (len = getline(&line, &alloc, fp)) > 0 ){
 		if(line[0] == '>'){
-			seq.clear();
-			no = 0;
+			if(no > 0){
+				if(seq.length() == 0){
+					iRet = -2;
+					break;
+				}
+				if((int)seq.length() > MAX_ADAPTER_LEN){
+					if( (trimMode & TRIM_ANY) == TRIM_HEAD )
+						seq.assign(seq.substr(seq.length() - MAX_ADAPTER_LEN, string::npos));
+					else
+						seq.assign(seq.substr(0, MAX_ADAPTER_LEN));
+				}
+				sequences.push_back(seq);
+				seq.clear();
+			}
+			if(int(sequences.size()) == MAX_ADAPTER_CNT){
+				fprintf(stderr, "\rWarning: only uses the first %d adapter sequences in \"%s\"\n", MAX_ADAPTER_CNT, fileName);
+				break;
+			}
+			no++;
 			continue;
+		}
+		if(no == 0){
+			iRet = -2;
+			break;
 		}
 		line[--len] = '\0';
 		if( (len > 0) && (line[len-1] == '\r') ){
 			line[--len] = '\0';
 		}
-		if(no == 0){
-			if(int(sequences.size()) == MAX_ADAPTER_CNT){
-				fprintf(stderr, "\rWarning: only uses the first %d adapter sequences in \"%s\"\n", MAX_ADAPTER_CNT, fileName);
-				break;
-			}
-			if(len > MAX_ADAPTER_LEN){
-				if( (trimMode & TRIM_ANY) == TRIM_HEAD )
-					seq.assign(line + len - MAX_ADAPTER_LEN);
-				else
-					seq.assign(line, 0, MAX_ADAPTER_LEN);
-			}
-			else{
-				seq.assign(line);
-			}
-			sequences.push_back(seq);
+		seq.append(line);
+	}
+	if(seq.length() > 0){
+		if((int)seq.length() > MAX_ADAPTER_LEN){
+			if( (trimMode & TRIM_ANY) == TRIM_HEAD )
+				seq.assign(seq.substr(seq.length() - MAX_ADAPTER_LEN, string::npos));
+			else
+				seq.assign(seq.substr(0, MAX_ADAPTER_LEN));
 		}
-		no++;
+		sequences.push_back(seq);
 	}
 	if(line != NULL)
 		free(line);
 	fclose(fp);
-	return true;
+	return iRet;
 }
 
 ///////////////////////////////////////////
@@ -327,7 +344,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 	if(bXFile){
 		fprintf(fp, "-- %s adapter sequences in file (-x):", endInfo);
 		fprintf(fp, "\t%s\n", x_str.c_str());
-		color_fprintf_sequences(color, fp, adapters);
+		color_fprintf_sequences(color, fp, adapters, 'X');
 	}
 	else{
 		fprintf(fp, "-- %s adapter sequence (-x):", endInfo);
@@ -338,7 +355,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 			if(bYFile){
 				fprintf(fp, "-- paired %s adapter sequences in file (-y):", endInfo);
 				fprintf(fp, "\t%s\n", y_str.c_str());
-				color_fprintf_sequences(color, fp, adapters2);
+				color_fprintf_sequences(color, fp, adapters2, 'Y');
 			}
 			else{
 				fprintf(fp, "-- paired %s adapter sequence (-y):", endInfo);
@@ -349,7 +366,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 			if(bJFile){
 				fprintf(fp, "-- junction adapter sequences in file (-j):");
 				fprintf(fp, "\t%s\n", j_str.c_str());
-				color_fprintf_sequences(color, fp, juncAdapters);
+				color_fprintf_sequences(color, fp, juncAdapters, 'J');
 			}
 			else{
 				fprintf(fp, "-- junction adapter sequence (-j):");
@@ -598,6 +615,9 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			if(nThreads < 1) nThreads = 1;
 			else if(nThreads > 16) nThreads = 16;
 			break;
+		case 'b':
+			bBarcode = true;
+			break;
 		default:
 			iRet = -1;
 			bEnquireVersion |= (chr == 'v');
@@ -657,8 +677,12 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	// adapters
 	if(bSetX){ // specified by command
 		if(bXFile){
-			if(!ReadFasta(x_str.c_str(), adapters)){
-				sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", x_str.c_str());
+			int iReadRet = ReadFasta(x_str.c_str(), adapters);
+			if(iReadRet < 0){
+				if(iReadRet == -1)
+					sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", x_str.c_str());
+				else
+					sprintf(errMsg, "\"%s\" is not a valid FASTA file", x_str.c_str());
 				return -2;
 			}
 		}
@@ -681,8 +705,12 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(nFileCnt == 2){
 		if(bSetY){ // specified by command
 			if(bYFile){
-				if(!ReadFasta(y_str.c_str(), adapters2)){
-					sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", y_str.c_str());
+				int iReadRet = ReadFasta(y_str.c_str(), adapters2);
+				if(iReadRet < 0){
+					if(iReadRet == -1)
+						sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", y_str.c_str());
+					else
+						sprintf(errMsg, "\"%s\" is not a valid FASTA file", y_str.c_str());
 					return -2;
 				}
 			}
@@ -786,7 +814,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			for(i=0; i<int(adapters.size()); i++){
 				if(bShareAdapter){
 					for(j=0; j<int(adapters.size()); j++){
-						sprintf(buffer, "%c%02d", ('A'+i), (j+1));
+						sprintf(buffer, "X%02dX%02d", (i+1), (j+1));
 						barcodes.push_back(string(buffer));
 						fileName.assign(string(trimmed) + string(buffer) + string("-pair1.fastq"));
 						fileName2.assign(string(trimmed) + string(buffer) + string("-pair2.fastq"));
@@ -800,7 +828,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				}
 				else{
 					for(j=0; j<int(adapters2.size()); j++){
-						sprintf(buffer, "%c%02d", ('A'+i), (j+1));
+						sprintf(buffer, "X%02dY%02d", (i+1), (j+1));
 						barcodes.push_back(string(buffer));
 						fileName.assign(string(trimmed) + string(buffer) + string("-pair1.fastq"));
 						fileName2.assign(string(trimmed) + string(buffer) + string("-pair2.fastq"));
@@ -822,9 +850,9 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		}
 		else{
 			for(i=0; i<int(adapters.size()); i++){
-				sprintf(buffer, "A%02d.fastq", (i+1));
+				sprintf(buffer, "X%02d", (i+1));
 				barcodes.push_back(string(buffer));
-				fileName.assign(string(trimmed) + string(buffer));
+				fileName.assign(string(trimmed) + string(buffer) + string(".fastq"));
 				if(outputFormat == COMPRESS_GZ){
 					fileName += string(".gz");
 				}

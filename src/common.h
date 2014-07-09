@@ -42,7 +42,7 @@ typedef unsigned char uchar;
 
 const int MAX_PATH = 255;
 const int MAX_ADAPTER_LEN = 64;
-const int MAX_ADAPTER_CNT = 16;
+const int MAX_ADAPTER_CNT = 96;
 
 typedef struct tag_INDEX{
 	int pos;
