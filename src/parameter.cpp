@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.116";
-const char * DATE = "July 9, 2014";
+const char * VERSION = "0.1.117";
+const char * DATE = "July 12, 2014";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -235,7 +235,7 @@ void cParameter::PrintVersion(FILE * fp)
 
 void cParameter::PrintUsage(char * program, FILE * fp)
 {
-	fprintf(fp, "Skewer (A fast and sensitive adapter trimmer for paired-end reads)\n");
+	fprintf(fp, "Skewer (A fast and accurate adapter trimmer for paired-end reads)\n");
 	fprintf(fp, "Version %s (updated in %s), Author: %s\n\n", VERSION, DATE, AUTHOR);
 	fprintf(fp, "USAGE: %s [options] <reads.fastq> [paired-reads.fastq]\n", program);
 	fprintf(fp, "    or %s [options] - (for input from STDIN)\n\n", program);
@@ -549,11 +549,12 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			minAverageQual = atoi(argv[i]);
 			break;
 		case 'l':
-			if( (argv[i][0] < '0' || argv[i][0] > '9') && (argv[i][0] != '-') ){
+			if(argv[i][0] < '0' || argv[i][0] > '9'){
 				iRet = -3;
 				break;
 			}
 			minLen = atoi(argv[i]);
+			if(minLen < 0) minLen = 0;
 			break;
 		case 'L':
 			if(argv[i][0] < '0' || argv[i][0] > '9'){
@@ -761,15 +762,13 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		}
 	}
 	// penalty
-	if(bSetD){
-		if(delta < 0) delta = 0;
-		else{
-			if(delta > 2){
-				delta = 1 / delta;
-			}
-			if(delta > epsilon){
-				delta = epsilon;
-			}
+	if(delta < 0) delta = 0;
+	else{
+		if(delta > 2){
+			delta = 1 / delta;
+		}
+		if(delta > epsilon){
+			delta = epsilon;
 		}
 	}
 	if(!bSetK){

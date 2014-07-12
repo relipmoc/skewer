@@ -362,8 +362,11 @@ public:
 			fprintf(fp, "%*ld (%5.2f%%) non-junction %s filtered out by contaminant control\n", width, nContaminant, (nContaminant * 100.0) / sum, entity);
 		if(bFilterUndetermined)
 			fprintf(fp, "%*ld (%5.2f%%) undetermined %s filtered out by contaminant control\n", width, nUndetermined, (nUndetermined * 100.0) / sum, entity);
-		fprintf(fp, "%*ld (%5.2f%%) short %s filtered out after trimming by size control\n", width, nShort, (nShort * 100.0) / sum, entity);
-		fprintf(fp, "%*ld (%5.2f%%) empty %s filtered out after trimming by size control\n", width, nEmpty, (nEmpty * 100.0) / sum, entity);
+		if(minLen > 0){
+			if(minLen > 1)
+				fprintf(fp, "%*ld (%5.2f%%) short %s filtered out after trimming by size control\n", width, nShort, (nShort * 100.0) / sum, entity);
+			fprintf(fp, "%*ld (%5.2f%%) empty %s filtered out after trimming by size control\n", width, nEmpty, (nEmpty * 100.0) / sum, entity);
+		}
 		if(nLong > 0)
 			fprintf(fp, "%*ld (%5.2f%%) long %s filtered out after trimming by size control\n", width, nLong, (nLong * 100.0) / sum, entity);
 		long nAvailSum = nTrimAvail + nUntrimAvail;
@@ -752,6 +755,9 @@ void * mt_worker(void * data)
 				}
 				pRecord->tag = TAG_NORMAL;
 				pRecord->idx = cMatrix::findAdapter(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n);
+				if(pRecord->idx.pos < 0){
+					pRecord->idx.pos = 0;
+				}
 				if( (minEndQual > 0) && (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){ // not found
 					pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
 				}
@@ -796,9 +802,6 @@ void * mt_worker(void * data)
 				if(pos > maxLen){
 					pStats->nLong++;
 					continue;
-				}
-				if(pos < 0){
-					pos = 0;
 				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
@@ -925,6 +928,9 @@ void * mt_worker2(void * data)
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
 				idx = cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
+				if(idx.pos < 0){
+					idx.pos = 0;
+				}
 				pos = idx.pos;
 				pRecord->idx = pRecord2->idx = idx;
 				if(pos < rLen){ // trimmed
@@ -1120,6 +1126,9 @@ void * mt_worker3(void * data)
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
 				idx = cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
+				if(idx.pos < 0){
+					idx.pos = 0;
+				}
 				pos = idx.pos;
 				if(pos < rLen){ // trimmed
 					if(pos >= minLen){
@@ -1139,7 +1148,13 @@ void * mt_worker3(void * data)
 				}
 				if( (pRecord->tag == TAG_NORMAL) && (pos >= minLen) ) {
 					pRecord->idx = cMatrix::findJuncAdapter(pRecord->seq.s, pos, (uchar *)pRecord->qual.s, qLen);
+					if(pRecord->idx.pos < 0){
+						pRecord->idx.pos = 0;
+					}
 					pRecord2->idx = cMatrix::findJuncAdapter(pRecord2->seq.s, pos, (uchar *)pRecord2->qual.s, qLen);
+					if(pRecord2->idx.pos < 0){
+						pRecord2->idx.pos = 0;
+					}
 					if(pos < rLen){ // trimmed
 						if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) || (pRecord->idx.bc != pRecord2->idx.bc) ){
 							pRecord->tag = TAG_CONTAMINANT;
@@ -1163,9 +1178,9 @@ void * mt_worker3(void * data)
 							else{
 								if(minEndQual > 0){
 									if(pRecord->qual.n > 0)
-										pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
+										pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->qual.n, pRecord->idx.pos), minEndQual);
 									if(pRecord2->qual.n > 0)
-										pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, pRecord2->qual.n, minEndQual);
+										pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pRecord2->qual.n, pRecord2->idx.pos), minEndQual);
 								}
 							}
 						}
