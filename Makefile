@@ -1,7 +1,7 @@
 CXX=g++
 DEBUG?=0
 CXXFLAGS?=-c
-LDFLAGS=-lpthread -lrt
+LDFLAGS=-pthread -lrt
 SRC=src
 SOURCES=$(SRC)/main.cpp $(SRC)/parameter.cpp $(SRC)/matrix.cpp $(SRC)/fastq.cpp
 OBJECTS=$(SOURCES:.cpp=.o)

@@ -1216,11 +1216,21 @@ void * mt_worker3(void * data)
 										}
 									}
 								}
+							} // case C
+							else{
+								if(minEndQual > 0){
+									if(pRecord->qual.n > 0)
+										pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->qual.n, pRecord->idx.pos), minEndQual);
+									if(pRecord2->qual.n > 0)
+										pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pRecord2->qual.n, pRecord2->idx.pos), minEndQual);
+								}
 							}
-						}
-					}
+						} // not case D
+					} // pos >= rLen
+					pRecord->idx.bc = idx.bc;
+					pRecord2->idx.bc = idx.bc;
 				}
-				else{
+				else{ // (pRecord->tag != TAG_NORMAL) || (pos < minLen)
 					pRecord2->idx = pRecord->idx = idx;
 				}
 			}

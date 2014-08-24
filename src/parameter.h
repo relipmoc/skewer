@@ -96,6 +96,7 @@ public:
 
 private:
 	char * occOfLastDot(char * str);
+	bool IsDirectorySpecified (char * str);
 	int ReadFasta(const char * fileName, vector<string> & sequences);
 
 public:

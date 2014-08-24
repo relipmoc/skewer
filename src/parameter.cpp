@@ -159,6 +159,12 @@ char * cParameter::occOfLastDot	(char * str)
 	return (ret != NULL) ? ret : str;
 }
 
+bool cParameter::IsDirectorySpecified (char * str)
+{
+	char *x = strrchr(str, '/');
+	return (x != NULL) && (x[1] == '\0');
+}
+
 int cParameter::ReadFasta(const char * fileName, vector<string> & sequences)
 {
 	char * line = NULL;
@@ -786,7 +792,32 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		return iRet;
 	}
 	char * end;
-	if(!bSetO){
+	if(bSetO){
+		end = strrchr(trimmed, '/');
+		if( (end != NULL) && (end[1] == '\0') ){
+			string command;
+			command.assign("mkdir -p " + string(trimmed));
+			if(system(command.c_str()) != 0){
+				sprintf(errMsg, "Can not create directory \"%s\"", trimmed);
+				return -2;
+			}
+			if(bStdin){
+				if(minAverageQual > 0)
+					sprintf(end+1, "trimmed-Q%dL%d", minAverageQual, minLen);
+				else
+					sprintf(end+1, "trimmed-L%d", minLen);
+			}
+			else{
+				gzstrncpy(end+1, input[0], MAX_PATH);
+				end = occOfLastDot(trimmed);
+				if(minAverageQual > 0)
+					sprintf(end, ".trimmed-Q%dL%d", minAverageQual, minLen);
+				else
+					sprintf(end, ".trimmed-L%d", minLen);
+			}
+		}
+	}
+	else{
 		if(bStdin){
 			if(minAverageQual > 0)
 				sprintf(trimmed, "trimmed-Q%dL%d", minAverageQual, minLen);
