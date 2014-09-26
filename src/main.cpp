@@ -77,6 +77,7 @@ public:
 	int nFiles;
 	int nFiles2;
 	bool bBarcode;
+	bool bDontTrim;
 	bool bStdout;
 
 	// for mutiple threads
@@ -107,6 +108,7 @@ public:
 		pHist = NULL;
 		pBarcode = NULL;
 		bBarcode = false;
+		bDontTrim = false;
 		bStdout = false;
 		bFilterNs = false;
 		bFilterUndetermined = false;
@@ -167,6 +169,7 @@ public:
 		memset(pBarcode, 0, nBarcodes * sizeof(long));
 		pBarcodeNames = &pParameter->barcodes;
 		bBarcode = true;
+		bDontTrim = pParameter->bDontTrim;
 		return true;
 	}
 	void InitGlobalAttributes(cParameter * pParameter, int64 total_file_length, bool bPaired, cFQ * pFq, cFQ * pFq2){
@@ -182,7 +185,7 @@ public:
 		this->minEndQual = (pParameter->minEndQual > 0) ? (pParameter->baseQual + pParameter->minEndQual) : 0;
 		this->minLen = pParameter->minLen;
 		this->maxLen = (pParameter->maxLen > 0) ? pParameter->maxLen : INT_MAX;
-		this->bFivePrimeEnd = (pParameter->trimMode == TRIM_HEAD);
+		this->bFivePrimeEnd = ((pParameter->trimMode & TRIM_ANY) == TRIM_HEAD);
 		this->bQuiet = pParameter->bQuiet || pParameter->bStdin;
 		this->bFilterNs = pParameter->bFilterNs;
 		this->bFilterUndetermined = pParameter->bFilterUndetermined;
@@ -373,10 +376,11 @@ public:
 		fprintf(fp, "%*ld (%5.2f%%) %s available", width, nAvailSum, (nAvailSum * 100.0) / sum, entity);
 		if(nAvailSum > 0){
 			fprintf(fp, "; of these:\n");
+			const char * pDecorate = (this->bDontTrim ? "assigned" : "trimmed");
 			if(nTrimAvail > 0)
-				fprintf(fp, "%*ld (%5.2f%%) trimmed %s available after processing\n", width, nTrimAvail, (nTrimAvail * 100.0) / nAvailSum, entity);
+				fprintf(fp, "%*ld (%5.2f%%) %s %s available after processing\n", width, nTrimAvail, (nTrimAvail * 100.0) / nAvailSum, pDecorate, entity);
 			if(nUntrimAvail > 0)
-				fprintf(fp, "%*ld (%5.2f%%) untrimmed %s available after processing\n", width, nUntrimAvail, (nUntrimAvail * 100.0) / nAvailSum, entity);
+				fprintf(fp, "%*ld (%5.2f%%) un%s %s available after processing\n", width, nUntrimAvail, (nUntrimAvail * 100.0) / nAvailSum, pDecorate, entity);
 		}
 		else{
 			fprintf(fp, ".\n");
@@ -652,7 +656,7 @@ public:
 					cMatrix::AddAdapter(cMatrix::secondAdapters,(char *)(*pAdapters)[i].c_str(), (*pAdapters)[i].length(), trimMode);
 				}
 			}
-			if(pParameter->trimMode == TRIM_MP){
+			if( (pParameter->trimMode & TRIM_MP) != 0 ){
 				pAdapters = &pParameter->juncAdapters;
 				for(i=0; i<int(pAdapters->size()); i++){
 					cMatrix::AddAdapter(cMatrix::junctionAdapters,(char *)(*pAdapters)[i].c_str(), (*pAdapters)[i].length(), TRIM_ANY);
@@ -688,6 +692,7 @@ void * mt_worker(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
+	bool bDontTrim = pStats->bDontTrim;
 
 	RECORD * pBuffer, *pRecord;
 	TASK task;
@@ -812,17 +817,25 @@ void * mt_worker(void * data)
 						pStats->incrementBarcode(pRecord->idx.bc);
 					}
 				}
-				if(bFivePrimeEnd){
+				if(bDontTrim){
 					if(pRecord->qual.n > 0) // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 					else // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+						fprintf(fpOut, ">%s%s\n", pRecord->id.s, pRecord->seq.s);
 				}
 				else{
-					if(pRecord->qual.n > 0) // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
-					else // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+					if(bFivePrimeEnd){
+						if(pRecord->qual.n > 0) // fastq
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						else // fasta
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+					}
+					else{
+						if(pRecord->qual.n > 0) // fastq
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						else // fasta
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+					}
 				}
 				if(pos < pRecord->seq.n)
 					pStats->nTrimAvail++;
@@ -854,6 +867,7 @@ void * mt_worker2(void * data)
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
 	bool bBarcode = pStats->bBarcode;
+	bool bDontTrim = pStats->bDontTrim;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -986,8 +1000,14 @@ void * mt_worker2(void * data)
 					continue;
 				}
 				// TAG_NORMAL
-				pos = pRecord->idx.pos;
-				pos2 = pRecord2->idx.pos;
+				if(bDontTrim){
+					pos = pRecord->seq.n;
+					pos2 = pRecord2->seq.n;
+				}
+				else{
+					pos = pRecord->idx.pos;
+					pos2 = pRecord2->idx.pos;
+				}
 				if( (pos < minLen) || (pos2 < minLen) ){
 					if( (pos <= 0) || (pos2 <= 0) )
 						pStats->nEmpty++;
@@ -1020,11 +1040,435 @@ void * mt_worker2(void * data)
 					fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
 					fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
 				}
-				mLen = (pos + pos2) / 2;
-				if(mLen < rLen) // trimmed
+				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
 					pStats->nTrimAvail++;
 				else
 					pStats->nUntrimAvail++;
+				mLen = (pos + pos2) / 2;
+				pStats->incrementCount(size_t(mLen));
+			}
+			pTaskMan->decreaseCnt();
+			startId += task.nBlockSize;
+			pRecord = &pBuffer[(startId << 1) % size2];
+			nItemCnt = pTaskMan->getItemCnt(startId, pRecord);
+		}while(nItemCnt > 0);
+	}
+	return NULL;
+}
+
+void * mt_worker2_sep(void * data)
+{
+	cData * pData = (cData *)data;
+	cTaskManager *pTaskMan = pData->pTaskMan;
+	cStats * pStats = pData->pStats;
+	int64 file_length = pStats->total_file_length;
+	cFQ * pfq = pStats->pfq;
+	cFQ * pfq2 = pStats->pfq2;
+	FILE *fpOut = pStats->fpOut;
+	FILE *fpOut2 = pStats->fpOut2;
+	int minAverageQual = pStats->minAverageQual;
+	int minEndQual = pStats->minEndQual;
+	int minLen = pStats->getMinLen();
+	int maxLen = pStats->getMaxLen();
+	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
+	bool bBarcode = pStats->bBarcode;
+	bool bDontTrim = pStats->bDontTrim;
+
+	RECORD *pBuffer, *pRecord, *pRecord2;
+	TASK task;
+	int size2, rc, rc2, nItemCnt, nCnt;
+	int64 startId;
+
+	pBuffer = pData->pBuffer;
+	size2 = pData->size * 2;
+	rc = rc2 = 0;
+
+	int64 cur_pos;
+	double cur_ratio;
+	int pos, pos2, mLen;
+
+	while(true){
+		while(!pTaskMan->getTask(task)){
+			if(pTaskMan->IsFinished()){
+				task.type = TASK_END;
+				break;
+			}
+			usleep(1);
+		}
+		if(task.type == TASK_END){
+			break;
+		}
+		startId = task.startId;
+		if(task.type == TASK_READ){
+			if(!pTaskMan->increaseCnt()){ // reach the buffer size
+				pTaskMan->addTask(task); // perform reading later
+				usleep(1);
+				continue;
+			}
+			// read records from input file to buffer
+			for(pRecord=&pBuffer[(startId << 1) % size2], nItemCnt=0; nItemCnt<task.nBlockSize; nItemCnt++, pRecord+=2){
+				pRecord2 = pRecord+1;
+				rc = pfq->readRecord(pRecord);
+				rc2 = pfq2->readRecord(pRecord2);
+				if( (rc < 0) || (rc2 < 0) ){
+					break;
+				}
+			}
+			if(!pStats->bQuiet){
+				cur_pos = pfq->tell() + pfq2->tell();
+				if(cur_pos >= pfq->next_pos){
+					cur_ratio = int64(cur_pos * 10000 / file_length) / 10000.0;
+					pStats->progress(cur_ratio, 50);
+					pfq->next_pos = int64(((cur_ratio * 10000 + 1) * file_length + 9999)/10000);
+				}
+			}
+			if( (rc < 0) || (rc2 < 0) ){ // error or end of file
+				pTaskMan->finish();
+				if( (rc < -1) || (rc2 < -1) ) continue; // error
+				if(nItemCnt == 0) continue; // no record read
+			}
+			task.startId += task.nBlockSize;
+			pTaskMan->addTask(task); // save next task for parallelism
+
+			// process the records
+			for(pRecord=&pBuffer[(startId << 1) % size2], nCnt=0; nCnt < nItemCnt; nCnt++, pRecord+=2){
+				pRecord2 = pRecord + 1;
+				if( pStats->bFilterNs &&
+					(cMatrix::isBlurry(pRecord->seq.s, pRecord->seq.n) && 
+					cMatrix::isBlurry(pRecord2->seq.s, pRecord2->seq.n)) ){
+					pRecord->tag = TAG_BLURRY;
+					continue;
+				}
+				if(minAverageQual > 0){
+					if( !cMatrix::checkQualities((uchar *)pRecord->qual.s, pRecord->qual.n, minAverageQual) &&
+						!cMatrix::checkQualities((uchar *)pRecord2->qual.s, pRecord2->qual.n, minAverageQual) ){
+						pRecord->tag = TAG_BADQUAL;
+						continue;
+					}
+				}
+				pRecord->tag = TAG_NORMAL;
+				pRecord->idx = cMatrix::findAdapter(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n);
+				pRecord2->idx = cMatrix::findAdapter2(pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n);
+				if(pRecord->idx.pos < 0){
+					pRecord->idx.pos = 0;
+				}
+				if(pRecord2->idx.pos < 0){
+					pRecord2->idx.pos = 0;
+				}
+				if( minEndQual > 0 ){
+					if( (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){
+						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
+					}
+					if( (pRecord2->idx.pos > 0) && (pRecord2->qual.n > 0) ){
+						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pRecord2->idx.pos, pRecord2->qual.n), minEndQual);
+					}
+				}
+			}
+
+			pRecord = &pBuffer[(startId << 1) % size2];
+			if(!pTaskMan->setItemCnt(startId, pRecord, nItemCnt)){
+				task.type = TASK_WRITE;
+				task.startId = startId;
+				task.nItemCnt = nItemCnt;
+				if(pTaskMan->bSingleBlock)
+					pTaskMan->insertTask(task);
+				else
+					pTaskMan->addTask(task);
+			}
+			continue;
+		}
+		// task.type == TASK_WRITE
+		pRecord = &pBuffer[(startId << 1) % size2];
+		nItemCnt = task.nItemCnt;
+		do{
+			// write to file
+			pRecord->nCnt = 0; // reset
+			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
+				pRecord2 = pRecord + 1;
+				if(pRecord->tag == TAG_BLURRY){
+					pStats->nBlurry++;
+					continue;
+				}
+				if(pRecord->tag == TAG_BADQUAL){
+					pStats->nBad++;
+					continue;
+				}
+				// TAG_NORMAL
+				if(bDontTrim){
+					pos = pRecord->seq.n;
+					pos2 = pRecord2->seq.n;
+				}
+				else{
+					pos = pRecord->idx.pos;
+					pos2 = pRecord2->idx.pos;
+				}
+				if( (pos < minLen) || (pos2 < minLen) ){
+					if( (pos <= 0) || (pos2 <= 0) )
+						pStats->nEmpty++;
+					else
+						pStats->nShort++;
+					continue;
+				}
+				if( (pos > maxLen) || (pos2 > maxLen) ){
+					pStats->nLong++;
+					continue;
+				}
+				if(bBarcode){
+					if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) ){
+						fpOut = pStats->fpUntrim.fp;
+						fpOut2 = pStats->fpUntrim2.fp;
+					}
+					else{
+						int bc = pRecord->idx.bc * cMatrix::secondAdapters.size() + pRecord2->idx.bc;
+						fpOut = pStats->fpOuts[bc].fp;
+						fpOut2 = pStats->fpOuts2[bc].fp;
+						pStats->incrementBarcode(bc);
+					}
+				}
+				if(bFivePrimeEnd){
+					if( pRecord->qual.n > 0 ){ // fastq
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+					}
+					else{ // fasta
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+					}
+					if( pRecord2->qual.n > 0 ){ // fastq
+						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+					}
+					else{ // fasta
+						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+					}
+				}
+				else{
+					if( pRecord->qual.n > 0 ){ // fastq
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+					}
+					else{ // fasta
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+					}
+					if( pRecord2->qual.n > 0 ){ // fastq
+						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+					}
+					else{ // fasta
+						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+					}
+				}
+				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
+					pStats->nTrimAvail++;
+				else
+					pStats->nUntrimAvail++;
+				mLen = (pos + pos2) / 2;
+				pStats->incrementCount(size_t(mLen));
+			}
+			pTaskMan->decreaseCnt();
+			startId += task.nBlockSize;
+			pRecord = &pBuffer[(startId << 1) % size2];
+			nItemCnt = pTaskMan->getItemCnt(startId, pRecord);
+		}while(nItemCnt > 0);
+	}
+	return NULL;
+}
+
+void * mt_worker2_amp(void * data)
+{
+	cData * pData = (cData *)data;
+	cTaskManager *pTaskMan = pData->pTaskMan;
+	cStats * pStats = pData->pStats;
+	int64 file_length = pStats->total_file_length;
+	cFQ * pfq = pStats->pfq;
+	cFQ * pfq2 = pStats->pfq2;
+	FILE *fpOut = pStats->fpOut;
+	FILE *fpOut2 = pStats->fpOut2;
+	int minAverageQual = pStats->minAverageQual;
+	int minEndQual = pStats->minEndQual;
+	int minLen = pStats->getMinLen();
+	int maxLen = pStats->getMaxLen();
+	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
+	bool bBarcode = pStats->bBarcode;
+	bool bDontTrim = pStats->bDontTrim;
+
+	RECORD *pBuffer, *pRecord, *pRecord2;
+	TASK task;
+	int size2, rc, rc2, nItemCnt, nCnt;
+	int64 startId;
+
+	pBuffer = pData->pBuffer;
+	size2 = pData->size * 2;
+	rc = rc2 = 0;
+
+	int64 cur_pos;
+	double cur_ratio;
+	int pos, pos2, mLen;
+
+	while(true){
+		while(!pTaskMan->getTask(task)){
+			if(pTaskMan->IsFinished()){
+				task.type = TASK_END;
+				break;
+			}
+			usleep(1);
+		}
+		if(task.type == TASK_END){
+			break;
+		}
+		startId = task.startId;
+		if(task.type == TASK_READ){
+			if(!pTaskMan->increaseCnt()){ // reach the buffer size
+				pTaskMan->addTask(task); // perform reading later
+				usleep(1);
+				continue;
+			}
+			// read records from input file to buffer
+			for(pRecord=&pBuffer[(startId << 1) % size2], nItemCnt=0; nItemCnt<task.nBlockSize; nItemCnt++, pRecord+=2){
+				pRecord2 = pRecord+1;
+				rc = pfq->readRecord(pRecord);
+				rc2 = pfq2->readRecord(pRecord2);
+				if( (rc < 0) || (rc2 < 0) ){
+					break;
+				}
+			}
+			if(!pStats->bQuiet){
+				cur_pos = pfq->tell() + pfq2->tell();
+				if(cur_pos >= pfq->next_pos){
+					cur_ratio = int64(cur_pos * 10000 / file_length) / 10000.0;
+					pStats->progress(cur_ratio, 50);
+					pfq->next_pos = int64(((cur_ratio * 10000 + 1) * file_length + 9999)/10000);
+				}
+			}
+			if( (rc < 0) || (rc2 < 0) ){ // error or end of file
+				pTaskMan->finish();
+				if( (rc < -1) || (rc2 < -1) ) continue; // error
+				if(nItemCnt == 0) continue; // no record read
+			}
+			task.startId += task.nBlockSize;
+			pTaskMan->addTask(task); // save next task for parallelism
+
+			// process the records
+			for(pRecord=&pBuffer[(startId << 1) % size2], nCnt=0; nCnt < nItemCnt; nCnt++, pRecord+=2){
+				pRecord2 = pRecord + 1;
+				if( pStats->bFilterNs &&
+					(cMatrix::isBlurry(pRecord->seq.s, pRecord->seq.n) && 
+					cMatrix::isBlurry(pRecord2->seq.s, pRecord2->seq.n)) ){
+					pRecord->tag = TAG_BLURRY;
+					continue;
+				}
+				if(minAverageQual > 0){
+					if( !cMatrix::checkQualities((uchar *)pRecord->qual.s, pRecord->qual.n, minAverageQual) &&
+						!cMatrix::checkQualities((uchar *)pRecord2->qual.s, pRecord2->qual.n, minAverageQual) ){
+						pRecord->tag = TAG_BADQUAL;
+						continue;
+					}
+				}
+				pRecord->tag = TAG_NORMAL;
+				cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n, pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n, pRecord->idx, pRecord2->idx);
+				if(pRecord->idx.pos < 0){
+					pRecord->idx.pos = 0;
+				}
+				if(pRecord2->idx.pos < 0){
+					pRecord2->idx.pos = 0;
+				}
+				if( minEndQual > 0 ){
+					if( (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){
+						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
+					}
+					if( (pRecord2->idx.pos > 0) && (pRecord2->qual.n > 0) ){
+						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pRecord2->idx.pos, pRecord2->qual.n), minEndQual);
+					}
+				}
+			}
+
+			pRecord = &pBuffer[(startId << 1) % size2];
+			if(!pTaskMan->setItemCnt(startId, pRecord, nItemCnt)){
+				task.type = TASK_WRITE;
+				task.startId = startId;
+				task.nItemCnt = nItemCnt;
+				if(pTaskMan->bSingleBlock)
+					pTaskMan->insertTask(task);
+				else
+					pTaskMan->addTask(task);
+			}
+			continue;
+		}
+		// task.type == TASK_WRITE
+		pRecord = &pBuffer[(startId << 1) % size2];
+		nItemCnt = task.nItemCnt;
+		do{
+			// write to file
+			pRecord->nCnt = 0; // reset
+			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
+				pRecord2 = pRecord + 1;
+				if(pRecord->tag == TAG_BLURRY){
+					pStats->nBlurry++;
+					continue;
+				}
+				if(pRecord->tag == TAG_BADQUAL){
+					pStats->nBad++;
+					continue;
+				}
+				// TAG_NORMAL
+				if(bDontTrim){
+					pos = pRecord->seq.n;
+					pos2 = pRecord2->seq.n;
+				}
+				else{
+					pos = pRecord->idx.pos;
+					pos2 = pRecord2->idx.pos;
+				}
+				if( (pos < minLen) || (pos2 < minLen) ){
+					if( (pos <= 0) || (pos2 <= 0) )
+						pStats->nEmpty++;
+					else
+						pStats->nShort++;
+					continue;
+				}
+				if( (pos > maxLen) || (pos2 > maxLen) ){
+					pStats->nLong++;
+					continue;
+				}
+				if(bBarcode){
+					if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) ){
+						fpOut = pStats->fpUntrim.fp;
+						fpOut2 = pStats->fpUntrim2.fp;
+					}
+					else{
+						fpOut = pStats->fpOuts[pRecord->idx.bc].fp;
+						fpOut2 = pStats->fpOuts2[pRecord->idx.bc].fp;
+						pStats->incrementBarcode(pRecord->idx.bc);
+					}
+				}
+				if(bFivePrimeEnd){
+					if( pRecord->qual.n > 0 ){ // fastq
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+					}
+					else{ // fasta
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+					}
+					if( pRecord2->qual.n > 0 ){ // fastq
+						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+					}
+					else{ // fasta
+						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+					}
+				}
+				else{
+					if( pRecord->qual.n > 0 ){ // fastq
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+					}
+					else{ // fasta
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+					}
+					if( pRecord2->qual.n > 0 ){ // fastq
+						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+					}
+					else{ // fasta
+						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+					}
+				}
+				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
+					pStats->nTrimAvail++;
+				else
+					pStats->nUntrimAvail++;
+				mLen = (pos + pos2) / 2;
 				pStats->incrementCount(size_t(mLen));
 			}
 			pTaskMan->decreaseCnt();
@@ -1422,17 +1866,39 @@ int processPairedFiles(cParameter * pParameter, cStats * pStats)
 	mtaux_t *mt = wk.getMultiThreadingPointer();
 	int rc;
 	void *status;
-	if(pParameter->trimMode == TRIM_PE){
+	if( (pParameter->trimMode & TRIM_PE) != 0 ){
+		if( (pParameter->trimMode & TRIM_ANY) == TRIM_DEFAULT ){
+			for(i=1; i<mt->n_threads; i++){ // worker 0 is effectively launched by the master thread
+				rc = pthread_create(&mt->tid[i], &wk.attr, mt_worker2, &mt->w[i]);
+				if(rc != 0){
+					fprintf(stderr, "Can not create thread %d\n", i);
+					break;
+				}
+			}
+			mt_worker2(&mt->w[0]);
+		}
+		else{
+			for(i=1; i<mt->n_threads; i++){ // worker 0 is effectively launched by the master thread
+				rc = pthread_create(&mt->tid[i], &wk.attr, mt_worker2_sep, &mt->w[i]);
+				if(rc != 0){
+					fprintf(stderr, "Can not create thread %d\n", i);
+					break;
+				}
+			}
+			mt_worker2_sep(&mt->w[0]);
+		}
+	}
+	else if( (pParameter->trimMode & TRIM_AP) != 0 ){
 		for(i=1; i<mt->n_threads; i++){ // worker 0 is effectively launched by the master thread
-			rc = pthread_create(&mt->tid[i], &wk.attr, mt_worker2, &mt->w[i]);
+			rc = pthread_create(&mt->tid[i], &wk.attr, mt_worker2_amp, &mt->w[i]);
 			if(rc != 0){
 				fprintf(stderr, "Can not create thread %d\n", i);
 				break;
 			}
 		}
-		mt_worker2(&mt->w[0]);
+		mt_worker2_amp(&mt->w[0]);
 	}
-	else{
+	else{ // TRIM_MP
 		for(i=1; i<mt->n_threads; i++){ // worker 0 is effectively launched by the master thread
 			rc = pthread_create(&mt->tid[i], &wk.attr, mt_worker3, &mt->w[i]);
 			if(rc != 0){

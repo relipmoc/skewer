@@ -297,7 +297,7 @@ bool cAdapter::align(char * read, size_t rLen, uchar * qual, size_t qLen, cEleme
 	bool bDetermined = false;
 	ELEMENT elem;
 	double dMaxPenalty = cMatrix::dPenaltyPerErr * len + 0.001;
-	int minK = bBestAlign ? cMatrix::iMinOverlap : 1;
+	int minK = bBestAlign ? ((cMatrix::iMinOverlap >= len) ? len : cMatrix::iMinOverlap) : 1;
 	int iMaxIndel = ceil(cMatrix::dEpsilonIndel * len);
 	double dMu = (bc >= 0) ? cMatrix::dMu : MIN_PENALTY;
 
@@ -585,6 +585,29 @@ INDEX cMatrix::findAdapter(char * read, size_t rLen, uchar * qual, size_t qLen)
 	return index;
 }
 
+INDEX cMatrix::findAdapter2(char * read, size_t rLen, uchar * qual, size_t qLen)
+{
+	deque<cAdapter>::iterator it_adapter;
+	cAdapter * pAdapter;
+	cElementSet result;
+	double maxScore = -1;
+	INDEX index;
+	index.pos = int(rLen);
+	index.bc = -1;
+	int i;
+	deque<cAdapter> *pAdapters = (bShareAdapter ? &firstAdapters : &secondAdapters);
+	for(i=0,it_adapter=pAdapters->begin(); it_adapter!=pAdapters->end(); it_adapter++,i++){
+		pAdapter = &(*it_adapter);
+		if(pAdapter->align(read, rLen, qual, qLen, result, i)){
+			if(result.begin()->score > maxScore){
+				index = result.begin()->idx;
+				maxScore = result.begin()->score;
+			}
+		}
+	}
+	return index;
+}
+
 INDEX cMatrix::findJuncAdapter(char * read, size_t rLen, uchar * qual, size_t qLen)
 {
 	deque<cAdapter>::iterator it_adapter;
@@ -693,6 +716,87 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 	}
 
 	return index;
+}
+
+bool cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
+	char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2)
+{
+	deque<cAdapter>::iterator it_adapter;
+	cAdapter * pAdapter;
+	cElementSet result;
+	cElementSet result2;
+	index.pos = index2.pos = int(rLen);
+	index.bc = index2.bc = -1;
+	int i;
+	double score, score2;
+	score = score2 = -1;
+	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
+		pAdapter = &(*it_adapter);
+		if(pAdapter->align(read, rLen, qual, qLen, result, i)){
+			if(result.begin()->score > score){
+				index = result.begin()->idx;
+				score = result.begin()->score;
+			}
+		}
+	}
+	deque<cAdapter> *pAdapters = (bShareAdapter ? &firstAdapters : &secondAdapters);
+	if(index.bc != -1){
+		for(i=0,it_adapter=pAdapters->begin(); it_adapter!=pAdapters->end(); it_adapter++,i++){
+			pAdapter = &(*it_adapter);
+			if(pAdapter->align(read2, rLen2, qual2, qLen2, result, i)){
+				if(result.begin()->score > score2){
+					index2 = result.begin()->idx;
+					score2 = result.begin()->score;
+				}
+			}
+		}
+	}
+	if(bShareAdapter){
+		if( (index.bc == -1) || (index2.bc == -1) ){
+			return false;
+		}
+		index.bc *= pAdapters->size();
+		index.bc += index2.bc;
+		return true;
+	}
+	INDEX index3, index4;
+	index3.bc = index4.bc = -1;
+	double maxScore = score + score2;
+	score = score2 = -1;
+
+	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
+		pAdapter = &(*it_adapter);
+		if(pAdapter->align(read2, rLen2, qual2, qLen2, result, i)){
+			if(result.begin()->score > score2){
+				index4 = result.begin()->idx;
+				score2 = result.begin()->score;
+			}
+		}
+	}
+	if(index4.bc != -1){
+		for(i=0,it_adapter=secondAdapters.begin(); it_adapter!=secondAdapters.end(); it_adapter++,i++){
+			pAdapter = &(*it_adapter);
+			if(pAdapter->align(read, rLen, qual, qLen, result, i)){
+				if(result.begin()->score > score){
+					index3 = result.begin()->idx;
+					score = result.begin()->score;
+				}
+			}
+		}
+	}
+	if( ((index.bc == -1) || (index2.bc == -1)) && ((index3.bc == -1) || (index4.bc == -1)) ){
+		return false;
+	}
+	if(score + score2 > maxScore){
+		index = index3;
+		index2 = index4;
+		index.bc += index2.bc * secondAdapters.size();
+	}
+	else{
+		index.bc *= secondAdapters.size();
+		index.bc += index2.bc;
+	}
+	return true;
 }
 
 INDEX cMatrix::mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen)

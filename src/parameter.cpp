@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.117";
-const char * DATE = "July 12, 2014";
+const char * VERSION = "0.1.119";
+const char * DATE = "Septempber 12, 2014";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -122,6 +122,7 @@ cParameter::cParameter()
 	trimMode = TRIM_DEFAULT;
 	bShareAdapter = false;
 	bBarcode = false;
+	bDontTrim = false;
 	bFilterNs = false;
 	bFilterUndetermined = false;
 	bXFile = bYFile = bJFile = false;
@@ -250,9 +251,9 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -x <str> Adapter sequence/file (%s)\n", ILLUMINA_PAIR1_ADAPTER_PREFIX);
 	fprintf(fp, "          -y <str> Adapter sequence/file for pair-end reads (%s),\n", ILLUMINA_PAIR2_ADAPTER_PREFIX);
 	fprintf(fp, "                   implied by -x if -x is the only one specified explicitly.\n");
-	fprintf(fp, "          -j <str> Junction adapter sequence/file for Nextera Mater Pair reads (%s)\n", ILLUMINA_JUNCTION_ADAPTER);
+	fprintf(fp, "          -j <str> Junction adapter sequence/file for Nextera Mate Pair reads (%s)\n", ILLUMINA_JUNCTION_ADAPTER);
 	fprintf(fp, "          -m, --mode <str> trimming mode; 1) single-end -- head: 5' end; tail: 3' end; any: anywhere (tail)\n");
-	fprintf(fp, "                           2) paired-end -- pe: paired-end; mp: mate-pair (pe)\n");
+	fprintf(fp, "                           2) paired-end -- pe: paired-end; mp: mate-pair; ap: amplicon (pe)\n");
 	fprintf(fp, " Tolerance:\n");
 	fprintf(fp, "          -r <num> Maximum allowed error rate (normalized #errors / length of aligned region) [0, 0.5], (0.1)\n");
 	fprintf(fp, "          -d <num> Maximum allowed indel error rate [0, r], (0.03)\n");
@@ -269,12 +270,13 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, " Input/Output:\n");
 	fprintf(fp, "          -f, --format <str> Format of FASTQ quality value: sanger|solexa|auto; (auto)\n");
 	fprintf(fp, "          -b, --barcode      Use adapters to demultiplex reads to trimmed file(s) and an untrimmed file (no)\n");
+	fprintf(fp, "              --barcodeonly  Use adapters to demultiplex reads without trimming (no)\n");
 	fprintf(fp, "          -o, --output <str>   Base name of output file; ('<reads>.trimmed-Q<int>L<int>')\n");
 	fprintf(fp, "          -z, --compress       Compress output in GZIP format (no)\n");
 	fprintf(fp, "          -1, --stdout         Redirect output to STDOUT, suppressing -b, -o, and -z options (no)\n");
 	fprintf(fp, "          --quiet              No progress update (not quiet)\n");
 	fprintf(fp, " Miscellaneous:\n");
-	fprintf(fp, "          -t, --threads <int>    Number of concurrent threads [1, 16]; (1)\n");
+	fprintf(fp, "          -t, --threads <int>    Number of concurrent threads [1, 32]; (1)\n");
 	fprintf(fp, "\nEXAMPLES:\n");
 	fprintf(fp, "          %s -Q 9 -t 2 -x adapters.fa sample.fastq -o trimmed\n", program);
 	fprintf(fp, "          %s -x %s -q 3 sample-pair1.fq.gz sample-pair2.fq.gz\n", program, ILLUMINA_ADAPTER_PREFIX);
@@ -402,11 +404,32 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 	// misc
 	if(nFileCnt < 2){
-		fprintf(fp, "-- minimum overlap length for adapter detection (-k):\t%d\n", minK);
+		fprintf(fp, "-- minimum overlap length for adapter detection (-k):\t");
+		if(minK == INT_MAX){
+			fprintf(fp, "inf\n");
+		}
+		else{
+			fprintf(fp, "%d\n", minK);
+		}
 	}
 	else{
 		if(trimMode == TRIM_MP){
-			fprintf(fp, "-- minimum overlap length for junction adapter detection (-k):\t%d\n", minK);
+			fprintf(fp, "-- minimum overlap length for junction adapter detection (-k):\t");
+			if(minK == INT_MAX){
+				fprintf(fp, "inf\n");
+			}
+			else{
+				fprintf(fp, "%d\n", minK);
+			}
+		}
+		else if(trimMode != TRIM_PE){
+			fprintf(fp, "-- minimum overlap length for adapter detection (-k):\t");
+			if(minK == INT_MAX){
+				fprintf(fp, "inf\n");
+			}
+			else{
+				fprintf(fp, "%d\n", minK);
+			}
 		}
 	}
 	if(nThreads > 1){
@@ -416,8 +439,9 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:nuf:bo:z1Q:k:t:*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:nuf:bao:z1Q:k:t:*vh";
 	OPTION_ITEM longOptions[] = {
+		{"barcodeonly", 'a'},
 		{"barcode", 'b'},
 		{"mode", 'm'},
 		{"end-quality", 'q'},
@@ -433,6 +457,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"version", 'v'},
 		{"help", 'h'}
 	};
+	char basename[MAX_PATH+1+100];
 	char trimmed[MAX_PATH+1+100];
 	this->argc = argc;
 	this->argv = argv;
@@ -511,6 +536,9 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 			else if(strcasecmp(argv[i], "mp") == 0){
 				trimMode = TRIM_MP;
+			}
+			else if(strcasecmp(argv[i], "ap") == 0){
+				trimMode = TRIM_AP;
 			}
 			else if(strcasecmp(argv[i], "tail") == 0){
 				trimMode = TRIM_TAIL;
@@ -595,7 +623,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 			break;
 		case 'o':
-			gzstrncpy(trimmed, argv[i], MAX_PATH);
+			gzstrncpy(basename, argv[i], MAX_PATH);
 			bSetO = true;
 			break;
 		case 'z':
@@ -608,7 +636,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			bQuiet = true;
 			break;
 		case 'k':
-			minK = atoi(argv[i]);
+			minK = (strcasecmp(argv[i], "inf") == 0) ? INT_MAX : atoi(argv[i]);
 			if(minK < 1) minK = 1;
 			bSetK = true;
 			break;
@@ -619,10 +647,14 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 			nThreads = atoi(argv[i]);
 			if(nThreads < 1) nThreads = 1;
-			else if(nThreads > 16) nThreads = 16;
+			else if(nThreads > 32) nThreads = 32;
 			break;
 		case 'b':
 			bBarcode = true;
+			break;
+		case 'a':
+			bBarcode = true;
+			bDontTrim = true;
 			break;
 		default:
 			iRet = -1;
@@ -657,7 +689,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			return -2;
 		}
 		if(bBarcode){
-			sprintf(errMsg, "STDOUT can not be used for demultiplexing (-b)");
+			sprintf(errMsg, "STDOUT can not be used for demultiplexing (-%c)", (bDontTrim ? 'a' : 'b') );
 			return -2;
 		}
 		if(bSetO){
@@ -671,13 +703,20 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	}
 	// trimming mode
 	if(nFileCnt < 2){
-		if( (trimMode & TRIM_ANY) == TRIM_DEFAULT ){
+		trimMode = TRIM_MODE(trimMode & TRIM_ANY);
+		if( trimMode == TRIM_DEFAULT ){
 			trimMode = TRIM_TAIL;
 		}
 	}
 	else{ // nFileCnt == 2
-		if( trimMode != TRIM_MP ) {
-			trimMode = TRIM_PE;
+		if( trimMode == TRIM_MP ) {
+			bDontTrim = false;
+		}
+		else if( trimMode == TRIM_AP ){ // for amplicon paired-end
+			trimMode = TRIM_MODE(trimMode | TRIM_HEAD);
+		}
+		else{
+			trimMode = TRIM_MODE(trimMode | TRIM_PE);
 		}
 	}
 	// adapters
@@ -791,46 +830,38 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(bStdout){
 		return iRet;
 	}
+	const char * pDecorate = (bDontTrim ? "assigned" : "trimmed");
 	char * end;
 	if(bSetO){
-		end = strrchr(trimmed, '/');
+		end = strrchr(basename, '/');
+		strcpy(trimmed, basename);
 		if( (end != NULL) && (end[1] == '\0') ){
 			string command;
-			command.assign("mkdir -p " + string(trimmed));
+			command.assign("mkdir -p " + string(basename));
 			if(system(command.c_str()) != 0){
-				sprintf(errMsg, "Can not create directory \"%s\"", trimmed);
+				sprintf(errMsg, "Can not create directory \"%s\"", basename);
 				return -2;
 			}
-			if(bStdin){
-				if(minAverageQual > 0)
-					sprintf(end+1, "trimmed-Q%dL%d", minAverageQual, minLen);
-				else
-					sprintf(end+1, "trimmed-L%d", minLen);
-			}
-			else{
-				gzstrncpy(end+1, input[0], MAX_PATH);
-				end = occOfLastDot(trimmed);
-				if(minAverageQual > 0)
-					sprintf(end, ".trimmed-Q%dL%d", minAverageQual, minLen);
-				else
-					sprintf(end, ".trimmed-L%d", minLen);
-			}
+			sprintf(trimmed + (end - basename) + 1, pDecorate);
+			sprintf(end+1, "un%s", pDecorate);
+		}
+		else{
+			strcat(trimmed, "-"); strcat(trimmed, pDecorate);
+			strcat(basename, "-un"); strcat(basename, pDecorate);
 		}
 	}
 	else{
 		if(bStdin){
-			if(minAverageQual > 0)
-				sprintf(trimmed, "trimmed-Q%dL%d", minAverageQual, minLen);
-			else
-				sprintf(trimmed, "trimmed-L%d", minLen);
+			sprintf(trimmed, "%s", pDecorate);
+			sprintf(basename, "un%s", pDecorate);
 		}
 		else{
 			gzstrncpy(trimmed, input[0], MAX_PATH);
 			end = occOfLastDot(trimmed);
-			if(minAverageQual > 0)
-				sprintf(end, ".trimmed-Q%dL%d", minAverageQual, minLen);
-			else
-				sprintf(end, ".trimmed-L%d", minLen);
+			end[0] = '\0';
+			strcpy(basename, trimmed);
+			sprintf(end, "-%s", pDecorate);
+			sprintf(basename + (end - trimmed), "-un%s", pDecorate);
 		}
 	}
 	strcpy(logfile, trimmed);
@@ -840,13 +871,19 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(bBarcode){
 		char buffer[MAX_PATH];
 		if(nFileCnt >= 2){
+			bool bPlenty = (int(adapters.size()) > 26);
 			for(i=0; i<int(adapters.size()); i++){
 				if(bShareAdapter){
 					for(j=0; j<int(adapters.size()); j++){
-						sprintf(buffer, "X%02dX%02d", (i+1), (j+1));
+						if(bPlenty){
+							sprintf(buffer, "%02d.%02d", (i+1), (j+1));
+						}
+						else{
+							sprintf(buffer, "%c%02d", char('A' + i), (j+1));
+						}
 						barcodes.push_back(string(buffer));
-						fileName.assign(string(trimmed) + string(buffer) + string("-pair1.fastq"));
-						fileName2.assign(string(trimmed) + string(buffer) + string("-pair2.fastq"));
+						fileName.assign(string(trimmed) + string("-") + string(buffer) + string("-pair1.fastq"));
+						fileName2.assign(string(trimmed) + string("-") + string(buffer) + string("-pair2.fastq"));
 						if(outputFormat == COMPRESS_GZ){
 							fileName += string(".gz");
 							fileName2 += string(".gz");
@@ -857,10 +894,15 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				}
 				else{
 					for(j=0; j<int(adapters2.size()); j++){
-						sprintf(buffer, "X%02dY%02d", (i+1), (j+1));
+						if(bPlenty){
+							sprintf(buffer, "%02d.%02d", (i+1), (j+1));
+						}
+						else{
+							sprintf(buffer, "%c%02d", char('A' + i), (j+1));
+						}
 						barcodes.push_back(string(buffer));
-						fileName.assign(string(trimmed) + string(buffer) + string("-pair1.fastq"));
-						fileName2.assign(string(trimmed) + string(buffer) + string("-pair2.fastq"));
+						fileName.assign(string(trimmed) + string("-") + string(buffer) + string("-pair1.fastq"));
+						fileName2.assign(string(trimmed) + string("-") + string(buffer) + string("-pair2.fastq"));
 						if(outputFormat == COMPRESS_GZ){
 							fileName += string(".gz");
 							fileName2 += string(".gz");
@@ -870,8 +912,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 					}
 				}
 			}
-			untrimmed.assign(string(trimmed) + string("untrimmed-pair1.fastq"));
-			untrimmed2.assign(string(trimmed) + string("untrimmed-pair2.fastq"));
+			untrimmed.assign(string(basename) + string("-pair1.fastq"));
+			untrimmed2.assign(string(basename) + string("-pair2.fastq"));
 			if(outputFormat == COMPRESS_GZ){
 				untrimmed += string(".gz");
 				untrimmed2 += string(".gz");
@@ -879,7 +921,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		}
 		else{
 			for(i=0; i<int(adapters.size()); i++){
-				sprintf(buffer, "X%02d", (i+1));
+				sprintf(buffer, "-%02d", (i+1));
 				barcodes.push_back(string(buffer));
 				fileName.assign(string(trimmed) + string(buffer) + string(".fastq"));
 				if(outputFormat == COMPRESS_GZ){
@@ -887,7 +929,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				}
 				output.push_back(fileName);
 			}
-			untrimmed.assign(string(trimmed) + string("untrimmed.fastq"));
+			untrimmed.assign(string(basename) + string(".fastq"));
 			if(outputFormat == COMPRESS_GZ){
 				untrimmed += string(".gz");
 			}

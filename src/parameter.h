@@ -80,6 +80,7 @@ public:
 	TRIM_MODE trimMode;
 	bool bShareAdapter;
 	bool bBarcode;
+	bool bDontTrim;
 	bool bFilterNs;
 	bool bFilterUndetermined;
 	bool bStdin;
