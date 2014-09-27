@@ -91,6 +91,7 @@ public:
 	bool bFivePrimeEnd;
 	bool bFilterNs;
 	bool bFilterUndetermined;
+	bool bRedistribute;
 	bool bQuiet;
 	bool bMatepair;
 
@@ -112,6 +113,7 @@ public:
 		bStdout = false;
 		bFilterNs = false;
 		bFilterUndetermined = false;
+		bRedistribute = false;
 		minLen = allocLen = 0;
 		maxLen = INT_MAX;
 		nBarcodes = 0;
@@ -189,6 +191,7 @@ public:
 		this->bQuiet = pParameter->bQuiet || pParameter->bStdin;
 		this->bFilterNs = pParameter->bFilterNs;
 		this->bFilterUndetermined = pParameter->bFilterUndetermined;
+		this->bRedistribute = pParameter->bRedistribute;
 	}
 	bool openOutputFiles(cParameter * pParameter){
 		bPaired = (pParameter->nFileCnt >= 2);
@@ -1496,6 +1499,7 @@ void * mt_worker3(void * data)
 	int maxLen = pStats->getMaxLen();
 	int maxLen2 = (maxLen == INT_MAX) ? INT_MAX : (maxLen * 2);
 	bool bBarcode = pStats->bBarcode;
+	bool bRedistribute = pStats->bRedistribute;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1631,7 +1635,9 @@ void * mt_worker3(void * data)
 						else{
 							if(pRecord->idx.bc < 0){ // case B
 								if( (pRecord2->idx.pos >= minLen) && (pRecord2->seq.n >= rLen) && (pRecord2->qual.n >= qLen) ){
-									pRecord->idx = cMatrix::mergePE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, pRecord2->idx.pos, cMatrix::junctionLengths[pRecord2->idx.bc]);
+									if(bRedistribute){
+										pRecord->idx = cMatrix::mergePE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, pRecord2->idx.pos, cMatrix::junctionLengths[pRecord2->idx.bc]);
+									}
 									if(minEndQual > 0){
 										int pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s + pRecord2->idx.pos, pRecord->idx.pos - pRecord->seq.n, minEndQual);
 										if(pos != pRecord->idx.pos - pRecord->seq.n){
@@ -1647,7 +1653,9 @@ void * mt_worker3(void * data)
 							}
 							else if(pRecord2->idx.bc < 0){ // case C
 								if( (pRecord->idx.pos >= minLen) && (pRecord->seq.n >= rLen) && (pRecord->qual.n >= qLen) ){
-									pRecord2->idx = cMatrix::mergePE(pRecord2->seq.s, pRecord->seq.s, rLen, (uchar *)pRecord2->qual.s, (uchar *)pRecord->qual.s, qLen, pRecord->idx.pos, cMatrix::junctionLengths[pRecord->idx.bc]);
+									if(bRedistribute){
+										pRecord2->idx = cMatrix::mergePE(pRecord2->seq.s, pRecord->seq.s, rLen, (uchar *)pRecord2->qual.s, (uchar *)pRecord->qual.s, qLen, pRecord->idx.pos, cMatrix::junctionLengths[pRecord->idx.bc]);
+									}
 									if(minEndQual > 0){
 										int pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s + pRecord->idx.pos, pRecord2->idx.pos - pRecord2->seq.n, minEndQual);
 										if(pos != pRecord2->idx.pos - pRecord2->seq.n){

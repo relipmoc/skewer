@@ -83,6 +83,7 @@ public:
 	bool bDontTrim;
 	bool bFilterNs;
 	bool bFilterUndetermined;
+	bool bRedistribute;
 	bool bStdin;
 	bool bStdout;
 	bool bQuiet;

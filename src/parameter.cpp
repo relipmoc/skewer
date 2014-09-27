@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.119";
-const char * DATE = "Septempber 12, 2014";
+const char * VERSION = "0.1.120";
+const char * DATE = "Septempber 27, 2014";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -125,6 +125,7 @@ cParameter::cParameter()
 	bDontTrim = false;
 	bFilterNs = false;
 	bFilterUndetermined = false;
+	bRedistribute = false;
 	bXFile = bYFile = bJFile = false;
 
 	nFileCnt = 0;
@@ -260,18 +261,19 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "                   reciprocal is used for -r and -d when num > or = 2\n");
 	fprintf(fp, "          -k <int> Minimum overlap length for adapter detection [1, inf);\n");
 	fprintf(fp, "                   (max(1, int(4-10*r)) for single-end; (<junction length>/2) for mate-pair)\n");
-	fprintf(fp, " Filtering & Post-trimming:\n");
+	fprintf(fp, " Filtering & Post-trimming & Redistribution:\n");
 	fprintf(fp, "          -q, --end-quality  <int> Trim 3' end until specified or higher quality reached; (0)\n");
 	fprintf(fp, "          -Q, --mean-quality <int> The lowest mean quality value allowed before trimming; (0)\n");
 	fprintf(fp, "          -l, --min <int> The minimum read length allowed after trimming; (18)\n");
 	fprintf(fp, "          -L, --max <int> The maximum read length allowed after trimming; (no limit)\n");
 	fprintf(fp, "          -n  Whether to filter out highly degerative (many Ns) reads; (no)\n");
 	fprintf(fp, "          -u  Whether to filter out undetermined mate-pair reads; (no)\n");
+	fprintf(fp, "          -i, --intelligent  For mate-pair mode, whether to redistribute reads based on junction information; (no)\n");
 	fprintf(fp, " Input/Output:\n");
 	fprintf(fp, "          -f, --format <str> Format of FASTQ quality value: sanger|solexa|auto; (auto)\n");
 	fprintf(fp, "          -b, --barcode      Use adapters to demultiplex reads to trimmed file(s) and an untrimmed file (no)\n");
 	fprintf(fp, "              --barcodeonly  Use adapters to demultiplex reads without trimming (no)\n");
-	fprintf(fp, "          -o, --output <str>   Base name of output file; ('<reads>.trimmed-Q<int>L<int>')\n");
+	fprintf(fp, "          -o, --output <str>   Base name of output file; ('<reads>.trimmed')\n");
 	fprintf(fp, "          -z, --compress       Compress output in GZIP format (no)\n");
 	fprintf(fp, "          -1, --stdout         Redirect output to STDOUT, suppressing -b, -o, and -z options (no)\n");
 	fprintf(fp, "          --quiet              No progress update (not quiet)\n");
@@ -281,7 +283,8 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          %s -Q 9 -t 2 -x adapters.fa sample.fastq -o trimmed\n", program);
 	fprintf(fp, "          %s -x %s -q 3 sample-pair1.fq.gz sample-pair2.fq.gz\n", program, ILLUMINA_ADAPTER_PREFIX);
 	fprintf(fp, "          %s -x %s -l 16 -L 30 -d 0 srna.fastq\n", program, ILLUMINA_SRNA_ADAPTER);
-	fprintf(fp, "          %s -m mp lmp-pair1.fastq lmp-pair2.fastq\n", program);
+	fprintf(fp, "          %s -m mp -i lmp-pair1.fastq lmp-pair2.fastq\n", program);
+	fprintf(fp, "          %s -m ap --barcodeonly -x forward-primers.fa -y reverse-primers.fa mix-pair1.fastq mix-pair2.fastq\n", program);
 }
 
 void cParameter::PrintSimpleUsage(char * program, FILE * fp)
@@ -421,6 +424,9 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 			else{
 				fprintf(fp, "%d\n", minK);
 			}
+			if(bRedistribute){
+				fprintf(fp, "-- redistribute reads based on junction information (-i):\tyes\n");
+			}
 		}
 		else if(trimMode != TRIM_PE){
 			fprintf(fp, "-- minimum overlap length for adapter detection (-k):\t");
@@ -439,7 +445,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:nuf:bao:z1Q:k:t:*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:nuf:bao:z1Q:k:t:i*vh";
 	OPTION_ITEM longOptions[] = {
 		{"barcodeonly", 'a'},
 		{"barcode", 'b'},
@@ -453,6 +459,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"format", 'f'},
 		{"stdout", '1'},
 		{"compress", 'z'},
+		{"intelligent", 'i'},
 		{"quiet", '*'},
 		{"version", 'v'},
 		{"help", 'h'}
@@ -655,6 +662,9 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		case 'a':
 			bBarcode = true;
 			bDontTrim = true;
+			break;
+		case 'i':
+			bRedistribute = true;
 			break;
 		default:
 			iRet = -1;
