@@ -66,9 +66,13 @@ public:
 	const char * version;
 	string x_str;
 	string y_str;
+	string m_str;
 	string j_str;
 	vector<string> adapters;
 	vector<string> adapters2;
+	vector< vector<bool> > bMatrix;
+	vector<string> rowNames;
+	vector<string> colNames;
 	vector<string> juncAdapters;
 	char * input[2];
 	vector<string> output;
@@ -95,10 +99,12 @@ public:
 	double epsilon, delta;
 	int minLen, maxLen, minAverageQual, minEndQual, nThreads;
 	int minK;
+	int iCutF, iCutR;
 
 private:
 	char * occOfLastDot(char * str);
 	bool IsDirectorySpecified (char * str);
+	int ReadMatrix(const char * fileName);
 	int ReadFasta(const char * fileName, vector<string> & sequences);
 
 public:

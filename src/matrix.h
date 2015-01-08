@@ -120,6 +120,7 @@ public:
 	static deque<cAdapter> junctionAdapters;
 
 	static vector<int> junctionLengths;
+	static vector< vector<int> > indices;
 	static int iMinOverlap;
 
 public:
@@ -133,6 +134,7 @@ public:
 	static void InitParameters(double dEpsilon, double dEpsilonIndel, int baseQual, bool bShareAdapter);
 	static void AddAdapter(deque<cAdapter> & adapters, char * vector, size_t len, TRIM_MODE trimMode);
 	static void CalculateJunctionLengths();
+	static void CalculateIndices(vector< vector<bool> > &bMatrix, int nRow, int nCol);
 
 	static bool isBlurry(char * seq, size_t len);
 	static bool checkQualities(uchar * quals, size_t len, int minQual);
@@ -143,7 +145,7 @@ public:
 	static INDEX findJuncAdapter(char * read, size_t rLen, uchar * qual, size_t qLen);
 
 	static INDEX findAdapterWithPE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen);
-	static bool findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
+	static int findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
 					char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2);
 	static INDEX mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen);
 	static void combinePairSeqs(char * read, char * read2, int len, uchar * qual, uchar * qual2, size_t qLen);

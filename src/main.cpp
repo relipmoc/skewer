@@ -94,6 +94,7 @@ public:
 	bool bRedistribute;
 	bool bQuiet;
 	bool bMatepair;
+	int iCutF, iCutR;
 
 	int getMinLen(){
 		return int(minLen);
@@ -117,6 +118,7 @@ public:
 		minLen = allocLen = 0;
 		maxLen = INT_MAX;
 		nBarcodes = 0;
+		iCutF = iCutR = 0;
 		
 		fpOuts = fpOuts2 = NULL;
 		nFiles = nFiles2 = 0;
@@ -162,6 +164,9 @@ public:
 		allocLen = 50;
 		memset(pHist, 0, allocLen * sizeof(long));
 		nBarcodes = 0;
+		bDontTrim = pParameter->bDontTrim;
+		this->iCutF = pParameter->iCutF;
+		this->iCutR = pParameter->iCutR;
 		if(!pParameter->bBarcode)
 			return true;
 		pBarcode = new long[pParameter->output.size()];
@@ -171,7 +176,6 @@ public:
 		memset(pBarcode, 0, nBarcodes * sizeof(long));
 		pBarcodeNames = &pParameter->barcodes;
 		bBarcode = true;
-		bDontTrim = pParameter->bDontTrim;
 		return true;
 	}
 	void InitGlobalAttributes(cParameter * pParameter, int64 total_file_length, bool bPaired, cFQ * pFq, cFQ * pFq2){
@@ -379,7 +383,7 @@ public:
 		fprintf(fp, "%*ld (%5.2f%%) %s available", width, nAvailSum, (nAvailSum * 100.0) / sum, entity);
 		if(nAvailSum > 0){
 			fprintf(fp, "; of these:\n");
-			const char * pDecorate = (this->bDontTrim ? "assigned" : "trimmed");
+			const char * pDecorate = (this->bBarcode ? "assigned" : "trimmed");
 			if(nTrimAvail > 0)
 				fprintf(fp, "%*ld (%5.2f%%) %s %s available after processing\n", width, nTrimAvail, (nTrimAvail * 100.0) / nAvailSum, pDecorate, entity);
 			if(nUntrimAvail > 0)
@@ -666,6 +670,7 @@ public:
 				}
 				cMatrix::CalculateJunctionLengths();
 			}
+			cMatrix::CalculateIndices(pParameter->bMatrix, pParameter->rowNames.size(), pParameter->colNames.size());
 		}
 		taskManager.initialize(nSize, nBlockSize);
 		return true;
@@ -812,12 +817,13 @@ void * mt_worker(void * data)
 					continue;
 				}
 				if(bBarcode){
-					if(pRecord->idx.bc < 0){
+					int bc = pRecord->idx.bc - 1;
+					if(bc < 0){
 						fpOut = pStats->fpUntrim.fp;
 					}
 					else{
-						fpOut = pStats->fpOuts[pRecord->idx.bc].fp;
-						pStats->incrementBarcode(pRecord->idx.bc);
+						fpOut = pStats->fpOuts[bc].fp;
+						pStats->incrementBarcode(bc);
 					}
 				}
 				if(bDontTrim){
@@ -840,10 +846,18 @@ void * mt_worker(void * data)
 							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
 					}
 				}
-				if(pos < pRecord->seq.n)
-					pStats->nTrimAvail++;
-				else
-					pStats->nUntrimAvail++;
+				if(bBarcode){
+					if(pRecord->idx.bc == 0)
+						pStats->nUntrimAvail++;
+					else
+						pStats->nTrimAvail++;
+				}
+				else{
+					if(pos < pRecord->seq.n)
+						pStats->nTrimAvail++;
+					else
+						pStats->nUntrimAvail++;
+				}
 				pStats->incrementCount(size_t(pos));
 			}
 			pTaskMan->decreaseCnt();
@@ -1043,10 +1057,20 @@ void * mt_worker2(void * data)
 					fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
 					fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
 				}
-				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
-					pStats->nTrimAvail++;
-				else
-					pStats->nUntrimAvail++;
+				if(bBarcode){
+					if(pRecord->idx.bc < 0){ // assigned
+						pStats->nUntrimAvail++;
+					}
+					else{
+						pStats->nTrimAvail++;
+					}
+				}
+				else{
+					if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed
+						pStats->nTrimAvail++;
+					else
+						pStats->nUntrimAvail++;
+				}
 				mLen = (pos + pos2) / 2;
 				pStats->incrementCount(size_t(mLen));
 			}
@@ -1217,12 +1241,12 @@ void * mt_worker2_sep(void * data)
 					continue;
 				}
 				if(bBarcode){
-					if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) ){
+					int bc = cMatrix::indices[pRecord->idx.bc][pRecord2->idx.bc];
+					if( bc < 0){
 						fpOut = pStats->fpUntrim.fp;
 						fpOut2 = pStats->fpUntrim2.fp;
 					}
 					else{
-						int bc = pRecord->idx.bc * cMatrix::secondAdapters.size() + pRecord2->idx.bc;
 						fpOut = pStats->fpOuts[bc].fp;
 						fpOut2 = pStats->fpOuts2[bc].fp;
 						pStats->incrementBarcode(bc);
@@ -1256,10 +1280,20 @@ void * mt_worker2_sep(void * data)
 						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
 					}
 				}
-				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
-					pStats->nTrimAvail++;
-				else
-					pStats->nUntrimAvail++;
+				if(bBarcode){
+					if(cMatrix::indices[pRecord->idx.bc][pRecord2->idx.bc] < 0){ // assigned
+						pStats->nUntrimAvail++;
+					}
+					else{
+						pStats->nTrimAvail++;
+					}
+				}
+				else{
+					if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed
+						pStats->nTrimAvail++;
+					else
+						pStats->nUntrimAvail++;
+				}
 				mLen = (pos + pos2) / 2;
 				pStats->incrementCount(size_t(mLen));
 			}
@@ -1289,10 +1323,13 @@ void * mt_worker2_amp(void * data)
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	bool bDontTrim = pStats->bDontTrim;
+	int iCutF = pStats->iCutF;
+	int iCutR = pStats->iCutR;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
 	int size2, rc, rc2, nItemCnt, nCnt;
+	int flag;
 	int64 startId;
 
 	pBuffer = pData->pBuffer;
@@ -1363,12 +1400,24 @@ void * mt_worker2_amp(void * data)
 					}
 				}
 				pRecord->tag = TAG_NORMAL;
-				cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n, pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n, pRecord->idx, pRecord2->idx);
-				if(pRecord->idx.pos < 0){
-					pRecord->idx.pos = 0;
-				}
-				if(pRecord2->idx.pos < 0){
-					pRecord2->idx.pos = 0;
+				flag = cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n, pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n, pRecord->idx, pRecord2->idx);
+				if(flag > 0){
+					if(bDontTrim){
+						if(flag == 1){
+							pRecord->idx.pos = pRecord->seq.n - iCutF;
+							pRecord2->idx.pos = pRecord2->seq.n - iCutR;
+						}
+						else{
+							pRecord->idx.pos = pRecord->seq.n - iCutR;
+							pRecord2->idx.pos = pRecord2->seq.n - iCutF;
+						}
+					}
+					if(pRecord->idx.pos < 0){
+						pRecord->idx.pos = 0;
+					}
+					if(pRecord2->idx.pos < 0){
+						pRecord2->idx.pos = 0;
+					}
 				}
 				if( minEndQual > 0 ){
 					if( (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){
@@ -1409,14 +1458,8 @@ void * mt_worker2_amp(void * data)
 					continue;
 				}
 				// TAG_NORMAL
-				if(bDontTrim){
-					pos = pRecord->seq.n;
-					pos2 = pRecord2->seq.n;
-				}
-				else{
-					pos = pRecord->idx.pos;
-					pos2 = pRecord2->idx.pos;
-				}
+				pos = pRecord->idx.pos;
+				pos2 = pRecord2->idx.pos;
 				if( (pos < minLen) || (pos2 < minLen) ){
 					if( (pos <= 0) || (pos2 <= 0) )
 						pStats->nEmpty++;
@@ -1429,7 +1472,7 @@ void * mt_worker2_amp(void * data)
 					continue;
 				}
 				if(bBarcode){
-					if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) ){
+					if(pRecord->idx.bc < 0){
 						fpOut = pStats->fpUntrim.fp;
 						fpOut2 = pStats->fpUntrim2.fp;
 					}
@@ -1467,10 +1510,20 @@ void * mt_worker2_amp(void * data)
 						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
 					}
 				}
-				if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed or assigned
-					pStats->nTrimAvail++;
-				else
-					pStats->nUntrimAvail++;
+				if(bBarcode){
+					if(pRecord->idx.bc < 0){ // assigned
+						pStats->nUntrimAvail++;
+					}
+					else{
+						pStats->nTrimAvail++;
+					}
+				}
+				else{
+					if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed
+						pStats->nTrimAvail++;
+					else
+						pStats->nUntrimAvail++;
+				}
 				mLen = (pos + pos2) / 2;
 				pStats->incrementCount(size_t(mLen));
 			}
@@ -1604,7 +1657,7 @@ void * mt_worker3(void * data)
 						pRecord2->idx.pos = 0;
 					}
 					if(pos < rLen){ // trimmed
-						if( (pRecord->idx.bc < 0) || (pRecord2->idx.bc < 0) || (pRecord->idx.bc != pRecord2->idx.bc) ){
+						if( (pRecord->idx.bc == 0) || (pRecord2->idx.bc == 0) || (pRecord->idx.bc != pRecord2->idx.bc) ){
 							pRecord->tag = TAG_CONTAMINANT;
 						}
 						else{
@@ -1620,7 +1673,7 @@ void * mt_worker3(void * data)
 						}
 					}
 					else{
-						if( (pRecord->idx.bc < 0) && (pRecord2->idx.bc < 0) ){ // case D
+						if( (pRecord->idx.bc == 0) && (pRecord2->idx.bc == 0) ){ // case D
 							if(pStats->bFilterUndetermined)
 								pRecord->tag = TAG_UNDETERMINED;
 							else{
@@ -1633,7 +1686,7 @@ void * mt_worker3(void * data)
 							}
 						}
 						else{
-							if(pRecord->idx.bc < 0){ // case B
+							if(pRecord->idx.bc == 0){ // case B
 								if( (pRecord2->idx.pos >= minLen) && (pRecord2->seq.n >= rLen) && (pRecord2->qual.n >= qLen) ){
 									if(bRedistribute){
 										pRecord->idx = cMatrix::mergePE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, pRecord2->idx.pos, cMatrix::junctionLengths[pRecord2->idx.bc]);
@@ -1651,7 +1704,7 @@ void * mt_worker3(void * data)
 									}
 								}
 							}
-							else if(pRecord2->idx.bc < 0){ // case C
+							else if(pRecord2->idx.bc == 0){ // case C
 								if( (pRecord->idx.pos >= minLen) && (pRecord->seq.n >= rLen) && (pRecord->qual.n >= qLen) ){
 									if(bRedistribute){
 										pRecord2->idx = cMatrix::mergePE(pRecord2->seq.s, pRecord->seq.s, rLen, (uchar *)pRecord2->qual.s, (uchar *)pRecord->qual.s, qLen, pRecord->idx.pos, cMatrix::junctionLengths[pRecord->idx.bc]);
@@ -1780,11 +1833,21 @@ void * mt_worker3(void * data)
 					else{
 						fprintf(fpOut2, ">%s%.*s%.*s\n", pRecord2->id.s, rLen, pRecord2->seq.s, pos2 - rLen, pRecord->seq.s + pos);
 					}
+				} 
+				if(bBarcode){
+					if(pRecord->idx.bc < 0){ // assigned
+						pStats->nUntrimAvail++;
+					}
+					else{
+						pStats->nTrimAvail++;
+					}
 				}
-				if(pos + pos2 < rLen + rLen) // trimmed
-					pStats->nTrimAvail++;
-				else
-					pStats->nUntrimAvail++;
+				else{
+					if(pos + pos2 < rLen + rLen) // trimmed
+						pStats->nTrimAvail++;
+					else
+						pStats->nUntrimAvail++;
+				}
 				pStats->incrementCount(size_t((pos + pos2) / 2));
 			}
 			pTaskMan->decreaseCnt();

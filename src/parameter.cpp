@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.120";
-const char * DATE = "Septempber 27, 2014";
+const char * VERSION = "0.1.122";
+const char * DATE = "Jan 6, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -108,6 +108,16 @@ void color_fprintf_sequences(int colorCode, FILE *stream, vector<string> &sequen
 	}
 }
 
+void color_fprintf_sequences(int colorCode, FILE *stream, vector<string> &sequences, vector<string> &names)
+{
+	assert(sequences.size() + 1 == names.size());
+	vector<string>::iterator it_seq;
+	int i;
+	for(i=1,it_seq=sequences.begin(); it_seq!=sequences.end(); it_seq++,i++){
+		fprintf(stream, "%s:\t", names[i].c_str());
+		color_fprintf(colorCode, stream, "%s\n", (*it_seq).c_str());
+	}
+}
 ///////////////////////////////////////
 cParameter::cParameter()
 {
@@ -145,6 +155,8 @@ cParameter::cParameter()
 	minEndQual = 0;
 	minK = 5;
 	nThreads = 1;
+
+	iCutF = iCutR = 0;
 }
 
 char * cParameter::occOfLastDot	(char * str)
@@ -165,6 +177,74 @@ bool cParameter::IsDirectorySpecified (char * str)
 {
 	char *x = strrchr(str, '/');
 	return (x != NULL) && (x[1] == '\0');
+}
+
+int cParameter::ReadMatrix(const char * fileName)
+{
+	char * line = NULL;
+	size_t alloc;
+	FILE * fp = fopen(fileName, "r");
+	if(fp == NULL)
+		return -1;
+	int iRet = 0;
+	int len, iRow, iCol;
+	char * pch;
+	bool bval;
+	bool bAdd1stCol = false;
+	iRow = 0;
+	while( (len = getline(&line, &alloc, fp)) > 0 ){
+		line[--len] = '\0';
+		if( (len > 0) && (line[len-1] == '\r') ){
+			line[--len] = '\0';
+		}
+		iCol = 0;
+		pch = strtok(line, "\t");
+		if(line[0] == '#'){
+			if(iRow > 0){
+				iRet = -2;
+				break;
+			}
+			while(pch != NULL){
+				if(iCol > 0){
+					if( (iCol == 1) && (strcmp(pch, "%") != 0) ){
+						colNames.push_back("%");
+						bAdd1stCol = true;
+					}
+					colNames.push_back(pch);
+				}
+				pch = strtok(NULL, "\t");
+				iCol++;
+			}
+			iRow++;
+			continue;
+		}
+		if(iRow == 1){
+			if( (pch == NULL) || (strcmp(pch, "%") != 0) ){
+				rowNames.push_back("%");
+				bMatrix.push_back(vector<bool>(colNames.size(),false));
+			}
+		}
+		vector<bool> bvec;
+		if(bAdd1stCol)
+			bvec.push_back(false);
+		while(pch != NULL){
+			if(iCol == 0){
+				rowNames.push_back(pch);
+			}
+			else{
+				bval = (atoi(pch) > 0);
+				bvec.push_back(bval);
+			}
+			pch = strtok(NULL, "\t");
+			iCol++;
+		}
+		bMatrix.push_back(bvec);
+		iRow++;
+	}
+	if(line != NULL)
+		free(line);
+	fclose(fp);
+	return iRet;
 }
 
 int cParameter::ReadFasta(const char * fileName, vector<string> & sequences)
@@ -252,6 +332,7 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -x <str> Adapter sequence/file (%s)\n", ILLUMINA_PAIR1_ADAPTER_PREFIX);
 	fprintf(fp, "          -y <str> Adapter sequence/file for pair-end reads (%s),\n", ILLUMINA_PAIR2_ADAPTER_PREFIX);
 	fprintf(fp, "                   implied by -x if -x is the only one specified explicitly.\n");
+	fprintf(fp, "          -M, --matrix <str> File indicates valid adapter pairing (all-ones matrix).\n");
 	fprintf(fp, "          -j <str> Junction adapter sequence/file for Nextera Mate Pair reads (%s)\n", ILLUMINA_JUNCTION_ADAPTER);
 	fprintf(fp, "          -m, --mode <str> trimming mode; 1) single-end -- head: 5' end; tail: 3' end; any: anywhere (tail)\n");
 	fprintf(fp, "                           2) paired-end -- pe: paired-end; mp: mate-pair; ap: amplicon (pe)\n");
@@ -266,6 +347,7 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -Q, --mean-quality <int> The lowest mean quality value allowed before trimming; (0)\n");
 	fprintf(fp, "          -l, --min <int> The minimum read length allowed after trimming; (18)\n");
 	fprintf(fp, "          -L, --max <int> The maximum read length allowed after trimming; (no limit)\n");
+	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases after demultiplexing; (no)\n"); 
 	fprintf(fp, "          -n  Whether to filter out highly degerative (many Ns) reads; (no)\n");
 	fprintf(fp, "          -u  Whether to filter out undetermined mate-pair reads; (no)\n");
 	fprintf(fp, "          -i, --intelligent  For mate-pair mode, whether to redistribute reads based on junction information; (no)\n");
@@ -284,7 +366,7 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          %s -x %s -q 3 sample-pair1.fq.gz sample-pair2.fq.gz\n", program, ILLUMINA_ADAPTER_PREFIX);
 	fprintf(fp, "          %s -x %s -l 16 -L 30 -d 0 srna.fastq\n", program, ILLUMINA_SRNA_ADAPTER);
 	fprintf(fp, "          %s -m mp -i lmp-pair1.fastq lmp-pair2.fastq\n", program);
-	fprintf(fp, "          %s -m ap --barcodeonly -x forward-primers.fa -y reverse-primers.fa mix-pair1.fastq mix-pair2.fastq\n", program);
+	fprintf(fp, "          %s -m ap --barcodeonly --cut 0,6 -x forward-primers.fa -y reverse-primers.fa mix-pair1.fastq mix-pair2.fastq\n", program);
 }
 
 void cParameter::PrintSimpleUsage(char * program, FILE * fp)
@@ -355,7 +437,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 	if(bXFile){
 		fprintf(fp, "-- %s adapter sequences in file (-x):", endInfo);
 		fprintf(fp, "\t%s\n", x_str.c_str());
-		color_fprintf_sequences(color, fp, adapters, 'X');
+		color_fprintf_sequences(color, fp, adapters, rowNames);
 	}
 	else{
 		fprintf(fp, "-- %s adapter sequence (-x):", endInfo);
@@ -366,7 +448,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 			if(bYFile){
 				fprintf(fp, "-- paired %s adapter sequences in file (-y):", endInfo);
 				fprintf(fp, "\t%s\n", y_str.c_str());
-				color_fprintf_sequences(color, fp, adapters2, 'Y');
+				color_fprintf_sequences(color, fp, adapters2, colNames);
 			}
 			else{
 				fprintf(fp, "-- paired %s adapter sequence (-y):", endInfo);
@@ -445,7 +527,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:nuf:bao:z1Q:k:t:i*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:ao:z1Q:k:t:i*vh";
 	OPTION_ITEM longOptions[] = {
 		{"barcodeonly", 'a'},
 		{"barcode", 'b'},
@@ -454,11 +536,14 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"mean-quality", 'Q'},
 		{"min", 'l'},
 		{"max", 'L'},
+		{"matrix", 'M'},
 		{"output", 'o'},
 		{"threads", 't'},
 		{"format", 'f'},
 		{"stdout", '1'},
 		{"compress", 'z'},
+		{"cut", 'c'}, // hard clip for clipping 6bp or 8bp tags from amplicon reads
+					  // example: --cut 0,6 for cutting leading 6 bp from read matches reverse primer
 		{"intelligent", 'i'},
 		{"quiet", '*'},
 		{"version", 'v'},
@@ -468,8 +553,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	char trimmed[MAX_PATH+1+100];
 	this->argc = argc;
 	this->argv = argv;
-	bool bSetX, bSetY, bSetJ, bSetO, bSetL, bSetD, bSetK;
-	bSetX = bSetY = bSetJ = bSetO = bSetL = bSetD = bSetK = false;
+	bool bSetX, bSetY, bSetM, bSetJ, bSetO, bSetL, bSetD, bSetK;
+	bSetX = bSetY = bSetM = bSetJ = bSetO = bSetL = bSetD = bSetK = false;
 	int iRet = 0;
 	int i, j;
 	char chr;
@@ -557,6 +642,10 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				iRet = -3;
 			}
 			break;
+		case 'M':
+			m_str.assign(argv[i]);
+			bSetM = true;
+			break;
 		case 'r':
 			if( (argv[i][0] < '0' || argv[i][0] > '9') && argv[i][0] != '.' ){
 				iRet = -3;
@@ -625,7 +714,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				baseQual = 64;
 			}
 			else{
-				sprintf(errMsg, "unkown format '%s', please select either 'sanger' or 'solexa'", argv[i]);
+				sprintf(errMsg, "unknown format '%s', please select either 'sanger' or 'solexa'", argv[i]);
 				iRet = -2;
 			}
 			break;
@@ -635,6 +724,26 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			break;
 		case 'z':
 			outputFormat = COMPRESS_GZ;
+			break;
+		case 'c':
+			{
+				char * line = strdup(argv[i]);
+				char * fnum = strtok(line, ",");
+				char * rnum = strtok(NULL, ",");
+				if( (fnum == NULL) || (rnum == NULL) ){
+					sprintf(errMsg, "invalid parameter '--cut %s'", argv[i]);
+					iRet = -2;
+					break;
+				}
+				iCutF = atoi(fnum);
+				iCutR = atoi(rnum);
+				if( (iCutF < 0) || (iCutR < 0) ){
+					sprintf(errMsg, "invalid parameter: --cut %s'", argv[i]);
+					iRet = -2;
+					break;
+				}
+			}
+			bDontTrim = true;
 			break;
 		case '1':
 			bStdout = true;
@@ -793,7 +902,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		if(trimMode == TRIM_MP){
 			if(bSetJ){ // specified by command
 				if(bXFile){
-					if(!ReadFasta(j_str.c_str(), juncAdapters)){
+					if(ReadFasta(j_str.c_str(), juncAdapters) < 0){
 						sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", j_str.c_str());
 						return -2;
 					}
@@ -813,6 +922,59 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			else{ // default
 				j_str.assign(ILLUMINA_JUNCTION_ADAPTER);
 				juncAdapters.push_back(j_str);
+			}
+		}
+		if(bSetM){
+			iRet = ReadMatrix(m_str.c_str());
+			if(iRet < 0){
+				if(iRet == -1){
+					sprintf(errMsg, "Can not open matrix file \"%s\" for reading\n", m_str.c_str());
+				}
+				else{
+					sprintf(errMsg, "File format of matrix file \"%s\" is invalid\n", m_str.c_str());
+				}
+				return iRet;
+			}
+			if( rowNames.size() != adapters.size() + 1 ){
+				sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x\n", m_str.c_str());
+				return -1;
+			}
+			uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
+			if( colNames.size() != usize + 1 ){
+				sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c\n",
+						 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
+				return -1;
+			}
+		}
+		else{
+			char buffer[MAX_PATH];
+			rowNames.push_back("%");
+			if(int(adapters.size()) > 26){
+				for(i=0; i<int(adapters.size()); i++){
+					sprintf(buffer, "%02dx", (i+1));
+					rowNames.push_back(buffer);
+				}
+			}
+			else{
+				for(i=0; i<int(adapters.size()); i++){
+					sprintf(buffer, "%c", char('A' + i));
+					rowNames.push_back(buffer);
+				}
+			}
+			vector<string> *pAdapter = (bShareAdapter ? &adapters : &adapters2);
+			colNames.push_back("%");
+			for(j=0; j<int(pAdapter->size()); j++){
+				sprintf(buffer, "%02d", (j+1));
+				colNames.push_back(buffer);
+			}
+			vector<bool> bvec;
+			bvec.push_back(false);
+			for(j=0; j<int(colNames.size())-1; j++){
+				bvec.push_back(true);
+			}
+			bMatrix.push_back(bBarcode ? vector<bool>(colNames.size(), false) : bvec);
+			for(j=0; j<int(rowNames.size()-1); j++){
+				bMatrix.push_back(bBarcode ? bvec : vector<bool>(colNames.size(), true));
 			}
 		}
 	}
@@ -840,7 +1002,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(bStdout){
 		return iRet;
 	}
-	const char * pDecorate = (bDontTrim ? "assigned" : "trimmed");
+	const char * pDecorate = ( bDontTrim ? ( (iCutF|iCutR) ? "clipped" : "assigned") : "trimmed");
 	char * end;
 	if(bSetO){
 		end = strrchr(basename, '/');
@@ -881,45 +1043,19 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(bBarcode){
 		char buffer[MAX_PATH];
 		if(nFileCnt >= 2){
-			bool bPlenty = (int(adapters.size()) > 26);
-			for(i=0; i<int(adapters.size()); i++){
-				if(bShareAdapter){
-					for(j=0; j<int(adapters.size()); j++){
-						if(bPlenty){
-							sprintf(buffer, "%02d.%02d", (i+1), (j+1));
-						}
-						else{
-							sprintf(buffer, "%c%02d", char('A' + i), (j+1));
-						}
-						barcodes.push_back(string(buffer));
-						fileName.assign(string(trimmed) + string("-") + string(buffer) + string("-pair1.fastq"));
-						fileName2.assign(string(trimmed) + string("-") + string(buffer) + string("-pair2.fastq"));
-						if(outputFormat == COMPRESS_GZ){
-							fileName += string(".gz");
-							fileName2 += string(".gz");
-						}
-						output.push_back(fileName);
-						output2.push_back(fileName2);
+			for(i=0; i<int(rowNames.size()); i++){
+				for(j=0; j<int(colNames.size()); j++){
+					if(!bMatrix[i][j]) continue;
+					string barcode(rowNames[i] + colNames[j]);
+					barcodes.push_back(barcode);
+					fileName.assign(string(trimmed) + string("-") + barcode + string("-pair1.fastq"));
+					fileName2.assign(string(trimmed) + string("-") + barcode + string("-pair2.fastq"));
+					if(outputFormat == COMPRESS_GZ){
+						fileName += string(".gz");
+						fileName2 += string(".gz");
 					}
-				}
-				else{
-					for(j=0; j<int(adapters2.size()); j++){
-						if(bPlenty){
-							sprintf(buffer, "%02d.%02d", (i+1), (j+1));
-						}
-						else{
-							sprintf(buffer, "%c%02d", char('A' + i), (j+1));
-						}
-						barcodes.push_back(string(buffer));
-						fileName.assign(string(trimmed) + string("-") + string(buffer) + string("-pair1.fastq"));
-						fileName2.assign(string(trimmed) + string("-") + string(buffer) + string("-pair2.fastq"));
-						if(outputFormat == COMPRESS_GZ){
-							fileName += string(".gz");
-							fileName2 += string(".gz");
-						}
-						output.push_back(fileName);
-						output2.push_back(fileName2);
-					}
+					output.push_back(fileName);
+					output2.push_back(fileName2);
 				}
 			}
 			untrimmed.assign(string(basename) + string("-pair1.fastq"));
