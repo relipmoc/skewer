@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.122";
-const char * DATE = "Jan 6, 2015";
+const char * VERSION = "0.1.122r";
+const char * DATE = "Jan 8, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -928,22 +928,22 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			iRet = ReadMatrix(m_str.c_str());
 			if(iRet < 0){
 				if(iRet == -1){
-					sprintf(errMsg, "Can not open matrix file \"%s\" for reading\n", m_str.c_str());
+					sprintf(errMsg, "Can not open matrix file \"%s\" for reading", m_str.c_str());
 				}
 				else{
-					sprintf(errMsg, "File format of matrix file \"%s\" is invalid\n", m_str.c_str());
+					sprintf(errMsg, "File format of matrix file \"%s\" is invalid", m_str.c_str());
 				}
-				return iRet;
+				return -2;
 			}
 			if( rowNames.size() != adapters.size() + 1 ){
-				sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x\n", m_str.c_str());
-				return -1;
+				sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
+				return -2;
 			}
 			uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
 			if( colNames.size() != usize + 1 ){
-				sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c\n",
+				sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
 						 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
-				return -1;
+				return -2;
 			}
 		}
 		else{
