@@ -32,6 +32,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif 
 #include <algorithm>
 #include <pthread.h>
 #include <unistd.h>
@@ -347,10 +351,30 @@ public:
 		if(flag & 0x01) fprintf(fp, "\n");
 	}
 	void start(){
-		clock_gettime(CLOCK_MONOTONIC, &tpstart);
+#ifdef CLOCK_MONOTONIC
+	clock_gettime(CLOCK_MONOTONIC, &tpstart);
+#else
+	clock_serv_t cclock;
+	mach_timespec_t mts;
+	host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
+	clock_get_time(cclock, &mts);
+	mach_port_deallocate(mach_task_self(), cclock);
+	tpstart.tv_sec = mts.tv_sec;
+	tpstart.tv_nsec = mts.tv_nsec;
+#endif
 	}
 	void end(){
-		clock_gettime(CLOCK_MONOTONIC, &tpend);
+#ifdef CLOCK_MONOTONIC
+	clock_gettime(CLOCK_MONOTONIC, &tpend);
+#else
+	clock_serv_t cclock;
+	mach_timespec_t mts;
+	host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
+	clock_get_time(cclock, &mts);
+	mach_port_deallocate(mach_task_self(), cclock);
+	tpend.tv_sec = mts.tv_sec;
+	tpend.tv_nsec = mts.tv_nsec;
+#endif
 	}
 	void printDiffTime(FILE * fp, bool bRnt=true){
 		double timediff = (tpend.tv_sec-tpstart.tv_sec)+(tpend.tv_nsec-tpstart.tv_nsec)/1e9;
