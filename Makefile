@@ -2,6 +2,9 @@ CXX=g++
 DEBUG?=0
 CXXFLAGS?=-c
 LDFLAGS=-pthread -lrt
+ifeq ($(shell uname),Darwin)
+LDFLAGS=-pthread
+endif
 SRC=src
 SOURCES=$(SRC)/main.cpp $(SRC)/parameter.cpp $(SRC)/matrix.cpp $(SRC)/fastq.cpp
 OBJECTS=$(SOURCES:.cpp=.o)

@@ -940,7 +940,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
 			return -2;
 		}
-		uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
+		uint64 usize = (bShareAdapter ? adapters.size() : adapters2.size());
 		if( colNames.size() != usize + 1 ){
 			sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
 					 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
