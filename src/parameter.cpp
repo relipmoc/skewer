@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.122r";
-const char * DATE = "Jan 8, 2015";
+const char * VERSION = "0.1.123";
+const char * DATE = "Jan 16, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -924,58 +924,58 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				juncAdapters.push_back(j_str);
 			}
 		}
-		if(bSetM){
-			iRet = ReadMatrix(m_str.c_str());
-			if(iRet < 0){
-				if(iRet == -1){
-					sprintf(errMsg, "Can not open matrix file \"%s\" for reading", m_str.c_str());
-				}
-				else{
-					sprintf(errMsg, "File format of matrix file \"%s\" is invalid", m_str.c_str());
-				}
-				return -2;
+	}
+	if(bSetM){
+		iRet = ReadMatrix(m_str.c_str());
+		if(iRet < 0){
+			if(iRet == -1){
+				sprintf(errMsg, "Can not open matrix file \"%s\" for reading", m_str.c_str());
 			}
-			if( rowNames.size() != adapters.size() + 1 ){
-				sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
-				return -2;
+			else{
+				sprintf(errMsg, "File format of matrix file \"%s\" is invalid", m_str.c_str());
 			}
-			uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
-			if( colNames.size() != usize + 1 ){
-				sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
-						 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
-				return -2;
+			return -2;
+		}
+		if( rowNames.size() != adapters.size() + 1 ){
+			sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
+			return -2;
+		}
+		uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
+		if( colNames.size() != usize + 1 ){
+			sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
+					 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
+			return -2;
+		}
+	}
+	else{
+		char buffer[MAX_PATH];
+		rowNames.push_back("%");
+		if(int(adapters.size()) > 26){
+			for(i=0; i<int(adapters.size()); i++){
+				sprintf(buffer, "%02dx", (i+1));
+				rowNames.push_back(buffer);
 			}
 		}
 		else{
-			char buffer[MAX_PATH];
-			rowNames.push_back("%");
-			if(int(adapters.size()) > 26){
-				for(i=0; i<int(adapters.size()); i++){
-					sprintf(buffer, "%02dx", (i+1));
-					rowNames.push_back(buffer);
-				}
+			for(i=0; i<int(adapters.size()); i++){
+				sprintf(buffer, "%c", char('A' + i));
+				rowNames.push_back(buffer);
 			}
-			else{
-				for(i=0; i<int(adapters.size()); i++){
-					sprintf(buffer, "%c", char('A' + i));
-					rowNames.push_back(buffer);
-				}
-			}
-			vector<string> *pAdapter = (bShareAdapter ? &adapters : &adapters2);
-			colNames.push_back("%");
-			for(j=0; j<int(pAdapter->size()); j++){
-				sprintf(buffer, "%02d", (j+1));
-				colNames.push_back(buffer);
-			}
-			vector<bool> bvec;
-			bvec.push_back(false);
-			for(j=0; j<int(colNames.size())-1; j++){
-				bvec.push_back(true);
-			}
-			bMatrix.push_back(bBarcode ? vector<bool>(colNames.size(), false) : bvec);
-			for(j=0; j<int(rowNames.size()-1); j++){
-				bMatrix.push_back(bBarcode ? bvec : vector<bool>(colNames.size(), true));
-			}
+		}
+		vector<string> *pAdapter = (bShareAdapter ? &adapters : &adapters2);
+		colNames.push_back("%");
+		for(j=0; j<int(pAdapter->size()); j++){
+			sprintf(buffer, "%02d", (j+1));
+			colNames.push_back(buffer);
+		}
+		vector<bool> bvec;
+		bvec.push_back(false);
+		for(j=0; j<int(colNames.size())-1; j++){
+			bvec.push_back(true);
+		}
+		bMatrix.push_back(bBarcode ? vector<bool>(colNames.size(), false) : bvec);
+		for(j=0; j<int(rowNames.size()-1); j++){
+			bMatrix.push_back(bBarcode ? bvec : vector<bool>(colNames.size(), true));
 		}
 	}
 	// penalty
