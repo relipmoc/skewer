@@ -827,20 +827,20 @@ void * mt_worker(void * data)
 					}
 				}
 				if(bDontTrim){
-					if(pRecord->qual.n > 0) // fastq
+					if(pRecord->com.n > 0 ) // fastq
 						fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 					else // fasta
 						fprintf(fpOut, ">%s%s\n", pRecord->id.s, pRecord->seq.s);
 				}
 				else{
 					if(bFivePrimeEnd){
-						if(pRecord->qual.n > 0) // fastq
+						if(pRecord->com.n > 0 ) // fastq
 							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
 						else // fasta
 							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
 					}
 					else{
-						if(pRecord->qual.n > 0) // fastq
+						if(pRecord->com.n > 0) // fastq
 							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 						else // fasta
 							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
@@ -1049,7 +1049,7 @@ void * mt_worker2(void * data)
 				}
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
-				if(qLen > 0){ // fastq
+				if(pRecord->com.n > 0){ // fastq
 					fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 					fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
 				}
@@ -1253,13 +1253,13 @@ void * mt_worker2_sep(void * data)
 					}
 				}
 				if(bFivePrimeEnd){
-					if( pRecord->qual.n > 0 ){ // fastq
+					if( pRecord->com.n > 0 ){ // fastq
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
 					}
 					else{ // fasta
 						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
 					}
-					if( pRecord2->qual.n > 0 ){ // fastq
+					if( pRecord2->com.n > 0 ){ // fastq
 						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
 					}
 					else{ // fasta
@@ -1267,13 +1267,13 @@ void * mt_worker2_sep(void * data)
 					}
 				}
 				else{
-					if( pRecord->qual.n > 0 ){ // fastq
+					if( pRecord->com.n > 0 ){ // fastq
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 					}
 					else{ // fasta
 						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
 					}
-					if( pRecord2->qual.n > 0 ){ // fastq
+					if( pRecord2->com.n > 0 ){ // fastq
 						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
 					}
 					else{ // fasta
@@ -1483,13 +1483,13 @@ void * mt_worker2_amp(void * data)
 					}
 				}
 				if(bFivePrimeEnd){
-					if( pRecord->qual.n > 0 ){ // fastq
+					if( pRecord->com.n > 0 ){ // fastq
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
 					}
 					else{ // fasta
 						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
 					}
-					if( pRecord2->qual.n > 0 ){ // fastq
+					if( pRecord2->com.n > 0 ){ // fastq
 						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
 					}
 					else{ // fasta
@@ -1497,13 +1497,13 @@ void * mt_worker2_amp(void * data)
 					}
 				}
 				else{
-					if( pRecord->qual.n > 0 ){ // fastq
+					if( pRecord->com.n > 0 ){ // fastq
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 					}
 					else{ // fasta
 						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
 					}
-					if( pRecord2->qual.n > 0 ){ // fastq
+					if( pRecord2->com.n > 0 ){ // fastq
 						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
 					}
 					else{ // fasta
@@ -1804,7 +1804,7 @@ void * mt_worker3(void * data)
 				}
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
-				if(qLen > 0){ // fastq
+				if( pRecord->com.n > 0 ){ // fastq
 					if(pos <= rLen){
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 					}
