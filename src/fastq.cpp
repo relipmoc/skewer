@@ -277,7 +277,7 @@ enum FASTQ_FORMAT gzformat(char * fileNames[], int nFileCnt)
 		fq.associateFile(cf.fp);
 		format_new = UNKNOWN_FASTQ;
 		while(fq.readRecord() > 0){
-			if(fq.rec.qual.n == 0){
+			if(fq.rec.com.n == 0){
 				format_new = FASTA;
 				break;
 			}
