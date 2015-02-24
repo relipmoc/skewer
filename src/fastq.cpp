@@ -92,6 +92,7 @@ int cFQ::readRecord(RECORD *pRecord)
 		// read fasta instead
 		char c = fgetc(in);
 		pRecord->seq.n = 0;
+		pRecord->com.n = 0;
 		while (c != '>' && c != EOF) {
 			if (pRecord->seq.a <= size_t(pRecord->seq.n+1)) {
 				pRecord->seq.s=(char *)realloc(pRecord->seq.s, pRecord->seq.a=(pRecord->seq.a * 3 / 2 + 64));
