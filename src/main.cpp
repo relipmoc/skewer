@@ -347,10 +347,10 @@ public:
 		if(flag & 0x01) fprintf(fp, "\n");
 	}
 	void start(){
-		clock_gettime(CLOCK_MONOTONIC, &tpstart);
+		versatile_gettime(&tpstart);
 	}
 	void end(){
-		clock_gettime(CLOCK_MONOTONIC, &tpend);
+		versatile_gettime(&tpend);
 	}
 	void printDiffTime(FILE * fp, bool bRnt=true){
 		double timediff = (tpend.tv_sec-tpstart.tv_sec)+(tpend.tv_nsec-tpstart.tv_nsec)/1e9;
@@ -556,7 +556,7 @@ friend class cData;
 	bool bPaired;
 	cFQ fq;
 	cFQ fq2;
-	int minLen;
+	//int minLen;
 	//bool bFivePrimeEnd;
 
 	mtaux_t *mt; // for multi-threading

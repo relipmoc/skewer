@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.123";
-const char * DATE = "Jan 16, 2015";
+const char * VERSION = "0.1.124";
+const char * DATE = "Mar 9, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -1014,7 +1014,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				sprintf(errMsg, "Can not create directory \"%s\"", basename);
 				return -2;
 			}
-			sprintf(trimmed + (end - basename) + 1, pDecorate);
+			sprintf(trimmed + (end - basename) + 1, "%s", pDecorate);
 			sprintf(end+1, "un%s", pDecorate);
 		}
 		else{

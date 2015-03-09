@@ -45,6 +45,13 @@
 #include <search.h>
 #include <limits.h>
 
+#include <time.h>
+#ifdef __MACH__
+#include <mach/mach_time.h>
+#define ORWL_NANO (+1.0E-9)
+#define ORWL_GIGA UINT64_C(1000000000)
+#endif
+
 #include "common.h"
 
 typedef struct tag_LINE {
@@ -128,5 +135,8 @@ extern int64 gzsize(const char * fileName);
 extern enum FASTQ_FORMAT gzformat(char * fileNames[], int nFileCnt);
 extern int gzreadlen(char * fileName);
 extern void gzstrncpy (char * dest, const char * src, int n);
+
+// time function
+extern void versatile_gettime(struct timespec *tp);
 
 #endif // _FASTQ_H

@@ -38,6 +38,10 @@ typedef long long int64;
 typedef long int32;
 typedef short int16;
 
+#ifndef uint
+typedef unsigned int uint;
+#endif
+
 typedef unsigned char uchar;
 
 const int MAX_PATH = 255;

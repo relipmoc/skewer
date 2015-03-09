@@ -35,7 +35,7 @@
 #include "matrix.h"
 #include "fastq.h"
 
-CODE map[256] = {
+CODE codeMap[256] = {
 	//  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
 	CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, // 0
 	CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, CD_NONE, // 1
@@ -180,7 +180,7 @@ void cAdapter::Init(char * seq, size_t sLen, TRIM_MODE trimMode)
 	for(code=0; code<CD_CNT; code++){
 		bits = 0;
 		for(i=int(len)-1; i>=0; i--){
-			code2 = map[uchar(sequence[i])];
+			code2 = codeMap[uchar(sequence[i])];
 			bits = (bits << 1) | chrVadp[code][code2];
 		}
 		matchBits[code] = ~bits;
@@ -199,7 +199,7 @@ void cAdapter::Init2(char * seq, size_t sLen)
 		this->len = sLen;
 	}
 	for(i=0; i<int(len); i++)
-		sequence[i] = character[complement[map[uchar(seq[len-1-i])]]];
+		sequence[i] = character[complement[codeMap[uchar(seq[len-1-i])]]];
 	sequence[len] = '\0';
 	this->trimMode = TRIM_TAIL;
 
@@ -209,7 +209,7 @@ void cAdapter::Init2(char * seq, size_t sLen)
 	for(code=CD_BASIC_CNT-1; code>=0; code--){
 		bits = 0;
 		for(i=int(len)-1; i>=0; i--){
-			code2 = map[uchar(sequence[i])];
+			code2 = codeMap[uchar(sequence[i])];
 			bits = (bits << 1) | chrVadp[code][code2];
 		}
 		matchBits[code] = ~bits;
@@ -332,7 +332,7 @@ bool cAdapter::align(char * read, size_t rLen, uchar * qual, size_t qLen, cEleme
 	double penal;
 	for(j=0; j<int(rLen); j++){
 		jj = j;
-		mbits = matchBits[map[uchar(read[jj])]];
+		mbits = matchBits[codeMap[uchar(read[jj])]];
 		penal = ((qLen > 0) ? cMatrix::penalty[qual[jj]] : dMu);
 
 		element.idx.pos = j;
@@ -463,8 +463,8 @@ bool cMatrix::CalcRevCompScore(char * seq, char * seq2, int len, uchar * qual, u
 	CODE code, code2;
 	score = 0.0;
 	for(int i=0; i<len; i++){
-		code = map[uchar(seq[i])];
-		code2 = complement[map[uchar(seq2[len-1-i])]];
+		code = codeMap[uchar(seq[i])];
+		code2 = complement[codeMap[uchar(seq2[len-1-i])]];
 		penal = scoring[code][code2];
 		if(penal > 0.0){
 			if(qLen > 0){
@@ -906,7 +906,7 @@ INDEX cMatrix::mergePE(char * read, char * read2, size_t rLen, uchar * qual, uch
 				read2[endPos + eLen - 1 - i] = chr;
 			}
 			for(i=0; i<(int)eLen; i++){
-				read2[startPos + i] = character[complement[map[uchar(read2[endPos + i])]]];
+				read2[startPos + i] = character[complement[codeMap[uchar(read2[endPos + i])]]];
 			}
 			if(qLen > 0){
 				for(i=eLen/2; i>=0; i--){ //reverse
@@ -930,8 +930,8 @@ void cMatrix::combinePairSeqs(char * read, char * read2, int len, uchar * qual, 
 {
 	CODE code, code2;
 	for(int i=0; i<len; i++){
-		code = map[uchar(read[i])];
-		code2 = complement[map[uchar(read2[len-1-i])]];
+		code = codeMap[uchar(read[i])];
+		code2 = complement[codeMap[uchar(read2[len-1-i])]];
 		if(qual2[len-1-i] > qual[i]){
 			qual[i] = qual2[len-1-i];
 			if(code != code2){
