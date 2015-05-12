@@ -35,6 +35,7 @@
 #include <deque>
 #include <vector>
 #include <set>
+#include <string>
 #include "common.h"
 
 using namespace std;
@@ -85,6 +86,9 @@ typedef enum{
 class cAdapter
 {
 	char sequence[MAX_ADAPTER_LEN+1]; // for debug only
+	char barcode[MAX_ADAPTER_LEN+1];
+	char primer[MAX_ADAPTER_LEN+1];
+	bool masked[MAX_ADAPTER_LEN+1];
 	inline void UPDATE_COLUMN(deque<ELEMENT> & queue, uint64 &d0bits, uint64 &lbits, uint64 &unbits, uint64 &dnbits, double &penal, double &dMaxPenalty, int &iMaxIndel);
 
 public:
@@ -99,6 +103,12 @@ public:
 	void Init(char * seq, size_t sLen, TRIM_MODE trimMode);
 	void Init2(char * seq, size_t sLen);
 	bool align(char * read, size_t rLen, uchar * qual, size_t qLen, cElementSet &result, int bc, bool bBestAlign=true);
+
+public:
+	void initBarcode(int iCut);
+	char * getBarcode() { return barcode; }
+	char * getPrimer() { return primer; }
+	bool * getMasked() { return masked; }
 };
 
 ///////////////////////////////////////
@@ -115,12 +125,23 @@ class cMatrix
 	static bool bSensitive;
 
 public:
+	static vector<bool *> fw_masked;
+	static vector<bool *> rv_masked;
+	static vector<string> fw_barcodes;
+	static vector<string> rv_barcodes;
+	static vector<string> fw_primers;
+	static vector<string> rv_primers;
+	static vector<int> rowBc;
+	static vector<int> colBc;
+
+public:
 	static deque<cAdapter> firstAdapters;
 	static deque<cAdapter> secondAdapters;
 	static deque<cAdapter> junctionAdapters;
 
 	static vector<int> junctionLengths;
 	static vector< vector<int> > indices;
+	static int iIdxCnt;
 	static int iMinOverlap;
 
 public:
@@ -135,6 +156,7 @@ public:
 	static void AddAdapter(deque<cAdapter> & adapters, char * vector, size_t len, TRIM_MODE trimMode);
 	static void CalculateJunctionLengths();
 	static void CalculateIndices(vector< vector<bool> > &bMatrix, int nRow, int nCol);
+	static void InitBarcodes(deque<cAdapter> & fw_primers, int iCutF, deque<cAdapter> & rv_primers, int iCutR);
 
 	static bool isBlurry(char * seq, size_t len);
 	static bool checkQualities(uchar * quals, size_t len, int minQual);
@@ -147,6 +169,8 @@ public:
 	static INDEX findAdapterWithPE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen);
 	static int findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
 					char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2);
+	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2, char * barcodeQual, char * qual, char * qual2);
+	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2);
 	static INDEX mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen);
 	static void combinePairSeqs(char * read, char * read2, int len, uchar * qual, uchar * qual2, size_t qLen);
 };

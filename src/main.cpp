@@ -58,6 +58,7 @@ private:
 	long * pHist;
 	long * pBarcode;
 	vector<string> * pBarcodeNames;
+	const char * pDecorate;
 
 public:
 	long nBlurry;
@@ -74,10 +75,11 @@ public:
 	CFILE *fpOuts2;
 	CFILE fpUntrim;
 	CFILE fpUntrim2;
+	CFILE fpBarcodes;
+	CFILE fpMapfile;
 	int nFiles;
 	int nFiles2;
 	bool bBarcode;
-	bool bDontTrim;
 	bool bStdout;
 
 	// for mutiple threads
@@ -86,6 +88,7 @@ public:
 	cFQ * pfq2;
 	FILE * fpOut;
 	FILE * fpOut2;
+	FILE * fpBarcode;
 	int minAverageQual;
 	int minEndQual;
 	bool bFivePrimeEnd;
@@ -110,7 +113,6 @@ public:
 		pHist = NULL;
 		pBarcode = NULL;
 		bBarcode = false;
-		bDontTrim = false;
 		bStdout = false;
 		bFilterNs = false;
 		bFilterUndetermined = false;
@@ -119,13 +121,18 @@ public:
 		maxLen = INT_MAX;
 		nBarcodes = 0;
 		iCutF = iCutR = 0;
+		pDecorate = "";
 		
 		fpOuts = fpOuts2 = NULL;
 		nFiles = nFiles2 = 0;
 		fpUntrim.fp = fpUntrim2.fp = NULL;
+		fpBarcodes.fp = NULL;
+		fpMapfile.fp = NULL;
 	}
 	~cStats(){
 		int i;
+		gzclose(&fpMapfile);
+		gzclose(&fpBarcodes);
 		gzclose(&fpUntrim2);
 		gzclose(&fpUntrim);
 		if(fpOuts2 != NULL){
@@ -164,7 +171,6 @@ public:
 		allocLen = 50;
 		memset(pHist, 0, allocLen * sizeof(long));
 		nBarcodes = 0;
-		bDontTrim = pParameter->bDontTrim;
 		this->iCutF = pParameter->iCutF;
 		this->iCutR = pParameter->iCutR;
 		if(!pParameter->bBarcode)
@@ -174,7 +180,7 @@ public:
 			return false;
 		nBarcodes = pParameter->output.size();
 		memset(pBarcode, 0, nBarcodes * sizeof(long));
-		pBarcodeNames = &pParameter->barcodes;
+		pBarcodeNames = &pParameter->barcodeNames;
 		bBarcode = true;
 		return true;
 	}
@@ -183,9 +189,11 @@ public:
 		this->total_file_length = total_file_length;
 		this->pfq = pFq;
 		this->fpOut = pParameter->bStdout ? stdout : fpOuts[0].fp;
+		this->pDecorate = pParameter->pDecorate;
 		if(bPaired){
 			this->pfq2 = pFq2;
 			this->fpOut2 = fpOuts2[0].fp;
+			this->fpBarcode = fpBarcodes.fp;
 		}
 		this->minAverageQual = (pParameter->minAverageQual > 0) ? (pParameter->baseQual + pParameter->minAverageQual) : 0;
 		this->minEndQual = (pParameter->minEndQual > 0) ? (pParameter->baseQual + pParameter->minEndQual) : 0;
@@ -216,7 +224,7 @@ public:
 				break;
 			}
 		}
-		if(bBarcode){
+		if(!pParameter->untrimmed.empty()){
 			fpUntrim = gzopen(pParameter->untrimmed.c_str(), "w");
 			if(fpUntrim.fp == NULL){
 				fprintf(stderr, "Can not open %s for writing\n", pParameter->untrimmed.c_str());
@@ -236,10 +244,24 @@ public:
 					break;
 				}
 			}
-			if(bBarcode){
+			if(!pParameter->untrimmed2.empty()){
 				fpUntrim2 = gzopen(pParameter->untrimmed2.c_str(), "w");
 				if(fpUntrim2.fp == NULL){
 					fprintf(stderr, "Can not open %s for writing\n", pParameter->untrimmed2.c_str());
+					return false;
+				}
+			}
+			if(!pParameter->barcodes.empty()){
+				fpBarcodes = gzopen(pParameter->barcodes.c_str(), "w");
+				if(fpBarcodes.fp == NULL){
+					fprintf(stderr, "Can not open %s for writing\n", pParameter->barcodes.c_str());
+					return false;
+				}
+			}
+			if(!pParameter->mapfile.empty()){
+				fpMapfile = gzopen(pParameter->mapfile.c_str(), "w");
+				if(fpMapfile.fp == NULL){
+					fprintf(stderr, "Can not open %s for writing\n", pParameter->mapfile.c_str());
 					return false;
 				}
 			}
@@ -383,7 +405,6 @@ public:
 		fprintf(fp, "%*ld (%5.2f%%) %s available", width, nAvailSum, (nAvailSum * 100.0) / sum, entity);
 		if(nAvailSum > 0){
 			fprintf(fp, "; of these:\n");
-			const char * pDecorate = (this->bBarcode ? "assigned" : "trimmed");
 			if(nTrimAvail > 0)
 				fprintf(fp, "%*ld (%5.2f%%) %s %s available after processing\n", width, nTrimAvail, (nTrimAvail * 100.0) / nAvailSum, pDecorate, entity);
 			if(nUntrimAvail > 0)
@@ -392,6 +413,24 @@ public:
 		else{
 			fprintf(fp, ".\n");
 		}
+	}
+	bool writeMapFile(cParameter * pParameter){
+		if(fpMapfile.fp == NULL){
+			return true;
+		}
+		int i, bc, bc2;
+		fprintf(fpMapfile.fp, "#SampleID\tBarcodeSequence\tLinkerPrimerSequence\tReversePrimer\tDescription\n");
+		string sampleId, barcode, fw_primer, rv_primer;
+		for(i=0; i<cMatrix::iIdxCnt; i++){
+			bc = cMatrix::rowBc[i];
+			bc2 = cMatrix::colBc[i];
+			sampleId = pParameter->rowNames[bc] + pParameter->colNames[bc2];
+			barcode = cMatrix::fw_barcodes[bc] + cMatrix::rv_barcodes[bc2];
+			fw_primer = cMatrix::fw_primers[bc];
+			rv_primer = cMatrix::rv_primers[bc2];
+			fprintf(fpMapfile.fp, "%s\t%s\t%s\t%s\tNA\n", sampleId.c_str(), barcode.c_str(), fw_primer.c_str(), rv_primer.c_str());
+		}
+		return true;
 	}
 };
 
@@ -671,6 +710,11 @@ public:
 				cMatrix::CalculateJunctionLengths();
 			}
 			cMatrix::CalculateIndices(pParameter->bMatrix, pParameter->rowNames.size(), pParameter->colNames.size());
+			if( (pParameter->trimMode & TRIM_AP) != 0 ){
+				if(pStats->fpMapfile.fp != NULL){
+					cMatrix::InitBarcodes(cMatrix::firstAdapters, pParameter->iCutF, (pParameter->bShareAdapter ? cMatrix::firstAdapters : cMatrix::secondAdapters), pParameter->iCutR);
+				}
+			}
 		}
 		taskManager.initialize(nSize, nBlockSize);
 		return true;
@@ -700,7 +744,6 @@ void * mt_worker(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
-	bool bDontTrim = pStats->bDontTrim;
 
 	RECORD * pBuffer, *pRecord;
 	TASK task;
@@ -825,8 +868,6 @@ void * mt_worker(void * data)
 						fpOut = pStats->fpOuts[bc].fp;
 						pStats->incrementBarcode(bc);
 					}
-				}
-				if(bDontTrim){
 					if(pRecord->qual.n > 0) // fastq
 						fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 					else // fasta
@@ -884,7 +925,6 @@ void * mt_worker2(void * data)
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
 	bool bBarcode = pStats->bBarcode;
-	bool bDontTrim = pStats->bDontTrim;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1017,7 +1057,7 @@ void * mt_worker2(void * data)
 					continue;
 				}
 				// TAG_NORMAL
-				if(bDontTrim){
+				if(bBarcode){
 					pos = pRecord->seq.n;
 					pos2 = pRecord2->seq.n;
 				}
@@ -1099,7 +1139,6 @@ void * mt_worker2_sep(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
-	bool bDontTrim = pStats->bDontTrim;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1221,7 +1260,7 @@ void * mt_worker2_sep(void * data)
 					continue;
 				}
 				// TAG_NORMAL
-				if(bDontTrim){
+				if(bBarcode){
 					pos = pRecord->seq.n;
 					pos2 = pRecord2->seq.n;
 				}
@@ -1316,15 +1355,22 @@ void * mt_worker2_amp(void * data)
 	cFQ * pfq2 = pStats->pfq2;
 	FILE *fpOut = pStats->fpOut;
 	FILE *fpOut2 = pStats->fpOut2;
+	FILE *fpBarcode = pStats->fpBarcode;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
-	bool bDontTrim = pStats->bDontTrim;
 	int iCutF = pStats->iCutF;
 	int iCutR = pStats->iCutR;
+	char barcodeSeq[25];
+	char barcodeQua[25];
+	if(fpBarcode != NULL){
+		memset(barcodeSeq, 0, 25 * sizeof(char));
+		memset(barcodeQua, 0, 25 * sizeof(char));
+	}
+	assert( (iCutF + iCutR) <= 24 );
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1401,16 +1447,15 @@ void * mt_worker2_amp(void * data)
 				}
 				pRecord->tag = TAG_NORMAL;
 				flag = cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n, pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n, pRecord->idx, pRecord2->idx);
-				if(flag > 0){
-					if(bDontTrim){
-						if(flag == 1){
-							pRecord->idx.pos = pRecord->seq.n - iCutF;
-							pRecord2->idx.pos = pRecord2->seq.n - iCutR;
-						}
-						else{
-							pRecord->idx.pos = pRecord->seq.n - iCutR;
-							pRecord2->idx.pos = pRecord2->seq.n - iCutF;
-						}
+				if(flag >= 0){
+					pRecord->bExchange = (flag == 1);
+					if(flag == 0){
+						pRecord->idx.pos = pRecord->seq.n - iCutF;
+						pRecord2->idx.pos = pRecord2->seq.n - iCutR;
+					}
+					else{
+						pRecord->idx.pos = pRecord->seq.n - iCutR;
+						pRecord2->idx.pos = pRecord2->seq.n - iCutF;
 					}
 					if(pRecord->idx.pos < 0){
 						pRecord->idx.pos = 0;
@@ -1419,7 +1464,7 @@ void * mt_worker2_amp(void * data)
 						pRecord2->idx.pos = 0;
 					}
 				}
-				if( minEndQual > 0 ){
+				if( minEndQual > 0 ){ // TODO: quality trimming from 5' end
 					if( (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){
 						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
 					}
@@ -1471,15 +1516,32 @@ void * mt_worker2_amp(void * data)
 					pStats->nLong++;
 					continue;
 				}
-				if(bBarcode){
-					if(pRecord->idx.bc < 0){
-						fpOut = pStats->fpUntrim.fp;
-						fpOut2 = pStats->fpUntrim2.fp;
+				if(pRecord->idx.bc < 0){
+					fpOut = pStats->fpUntrim.fp;
+					fpOut2 = pStats->fpUntrim2.fp;
+				}
+				else{
+					if(pRecord->bExchange){
+						if(bBarcode){
+							fpOut2 = pStats->fpOuts[pRecord->idx.bc].fp;
+							fpOut = pStats->fpOuts2[pRecord->idx.bc].fp;
+							pStats->incrementBarcode(pRecord->idx.bc);
+						}
+						else{
+							fpOut2 = pStats->fpOut;
+							fpOut = pStats->fpOut2;
+						}
 					}
 					else{
-						fpOut = pStats->fpOuts[pRecord->idx.bc].fp;
-						fpOut2 = pStats->fpOuts2[pRecord->idx.bc].fp;
-						pStats->incrementBarcode(pRecord->idx.bc);
+						if(bBarcode){
+							fpOut = pStats->fpOuts[pRecord->idx.bc].fp;
+							fpOut2 = pStats->fpOuts2[pRecord->idx.bc].fp;
+							pStats->incrementBarcode(pRecord->idx.bc);
+						}
+						else{
+							fpOut = pStats->fpOut;
+							fpOut2 = pStats->fpOut2;
+						}
 					}
 				}
 				if(bFivePrimeEnd){
@@ -1510,19 +1572,30 @@ void * mt_worker2_amp(void * data)
 						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
 					}
 				}
-				if(bBarcode){
-					if(pRecord->idx.bc < 0){ // assigned
-						pStats->nUntrimAvail++;
+				if( (fpBarcode != NULL) && (pRecord->idx.bc >= 0) ){
+					if( (pRecord->qual.n > 0) && (pRecord2->qual.n > 0) ){ // fastq
+						if(cMatrix::PrepareBarcode(barcodeSeq, pRecord->idx.bc, pRecord->seq.s, iCutF, pRecord2->seq.s, iCutR, barcodeQua, pRecord->qual.s, pRecord2->qual.s)){
+							fprintf(fpBarcode, "@%s%s\n+\n%s\n", pRecord->id.s, barcodeSeq, barcodeQua);
+						}
+						else{
+							fprintf(fpBarcode, "@%s%.*s%.*s\n+\n%.*s%.*s\n", pRecord->id.s, iCutF, pRecord->seq.s, iCutR, pRecord2->seq.s,
+										iCutF, pRecord->qual.s, iCutR, pRecord2->qual.s);
+						}
 					}
-					else{
-						pStats->nTrimAvail++;
+					else{ // fasta
+						if(cMatrix::PrepareBarcode(barcodeSeq, pRecord->idx.bc, pRecord->seq.s, iCutF, pRecord2->seq.s, iCutR)){
+							fprintf(fpBarcode, ">%s%s\n", pRecord->id.s, barcodeSeq);
+						}
+						else{
+							fprintf(fpBarcode, ">%s%.*s%.*s\n", pRecord->id.s, iCutF, pRecord->seq.s, iCutR, pRecord2->seq.s);
+						}
 					}
 				}
+				if(pRecord->idx.bc < 0){ // assigned
+					pStats->nUntrimAvail++;
+				}
 				else{
-					if(pRecord->idx.pos < pRecord->seq.n || pRecord2->idx.pos < pRecord2->seq.n) // trimmed
-						pStats->nTrimAvail++;
-					else
-						pStats->nUntrimAvail++;
+					pStats->nTrimAvail++;
 				}
 				mLen = (pos + pos2) / 2;
 				pStats->incrementCount(size_t(mLen));
@@ -2069,6 +2142,10 @@ int main(int argc, char * argv[])
 	if(!stats.bStdout){
 		fclose(hLog);
 		fprintf(stdout, "log has been saved to \"%s\".\n", para.logfile);
+	}
+	if(!stats.writeMapFile(&para)){
+		fprintf(stderr, "Can not write Mapping file\n");
+		return 1;
 	}
 
 	return 0;

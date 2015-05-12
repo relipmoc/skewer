@@ -71,8 +71,9 @@ typedef enum{
 }REC_TAG;
 
 typedef struct tag_REC{
-	int32 tag:8; // REC_TAG
-	int32 nCnt:24;
+	uint32 tag:7; // REC_TAG
+	uint32 bExchange:1;
+	uint32 nCnt:24;
 	INDEX idx;
 	LINE id;
 	LINE seq;

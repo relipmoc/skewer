@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.124";
-const char * DATE = "Mar 9, 2015";
+const char * VERSION = "0.1.125";
+const char * DATE = "May 7, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -128,11 +128,13 @@ cParameter::cParameter()
 	input[0] = arr[0]; input[1] = arr[1];
 	input[0][0] = input[1][0] = '\0';
 	logfile[0] = '\0';
+	pDecorate = "";
 
 	trimMode = TRIM_DEFAULT;
 	bShareAdapter = false;
 	bBarcode = false;
-	bDontTrim = false;
+	bClip = false;
+	bQiime = false;
 	bFilterNs = false;
 	bFilterUndetermined = false;
 	bRedistribute = false;
@@ -336,37 +338,37 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -j <str> Junction adapter sequence/file for Nextera Mate Pair reads (%s)\n", ILLUMINA_JUNCTION_ADAPTER);
 	fprintf(fp, "          -m, --mode <str> trimming mode; 1) single-end -- head: 5' end; tail: 3' end; any: anywhere (tail)\n");
 	fprintf(fp, "                           2) paired-end -- pe: paired-end; mp: mate-pair; ap: amplicon (pe)\n");
+	fprintf(fp, "          -b, --barcode    Demultiplex reads according to adapters/primers (no)\n");
+	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases as the barcodes in amplicon mode; (no)\n");
 	fprintf(fp, " Tolerance:\n");
 	fprintf(fp, "          -r <num> Maximum allowed error rate (normalized #errors / length of aligned region) [0, 0.5], (0.1)\n");
 	fprintf(fp, "          -d <num> Maximum allowed indel error rate [0, r], (0.03)\n");
 	fprintf(fp, "                   reciprocal is used for -r and -d when num > or = 2\n");
 	fprintf(fp, "          -k <int> Minimum overlap length for adapter detection [1, inf);\n");
 	fprintf(fp, "                   (max(1, int(4-10*r)) for single-end; (<junction length>/2) for mate-pair)\n");
-	fprintf(fp, " Filtering & Post-trimming & Redistribution:\n");
+	fprintf(fp, " Filtering:\n");
 	fprintf(fp, "          -q, --end-quality  <int> Trim 3' end until specified or higher quality reached; (0)\n");
 	fprintf(fp, "          -Q, --mean-quality <int> The lowest mean quality value allowed before trimming; (0)\n");
 	fprintf(fp, "          -l, --min <int> The minimum read length allowed after trimming; (18)\n");
 	fprintf(fp, "          -L, --max <int> The maximum read length allowed after trimming; (no limit)\n");
-	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases after demultiplexing; (no)\n"); 
-	fprintf(fp, "          -n  Whether to filter out highly degerative (many Ns) reads; (no)\n");
+	fprintf(fp, "          -n  Whether to filter out highly degenerative (many Ns) reads; (no)\n");
 	fprintf(fp, "          -u  Whether to filter out undetermined mate-pair reads; (no)\n");
-	fprintf(fp, "          -i, --intelligent  For mate-pair mode, whether to redistribute reads based on junction information; (no)\n");
 	fprintf(fp, " Input/Output:\n");
-	fprintf(fp, "          -f, --format <str> Format of FASTQ quality value: sanger|solexa|auto; (auto)\n");
-	fprintf(fp, "          -b, --barcode      Use adapters to demultiplex reads to trimmed file(s) and an untrimmed file (no)\n");
-	fprintf(fp, "              --barcodeonly  Use adapters to demultiplex reads without trimming (no)\n");
+	fprintf(fp, "          -f, --format <str>   Format of FASTQ quality value: sanger|solexa|auto; (auto)\n");
 	fprintf(fp, "          -o, --output <str>   Base name of output file; ('<reads>.trimmed')\n");
 	fprintf(fp, "          -z, --compress       Compress output in GZIP format (no)\n");
 	fprintf(fp, "          -1, --stdout         Redirect output to STDOUT, suppressing -b, -o, and -z options (no)\n");
+	fprintf(fp, "          --qiime              Prepare the \"barcodes.fastq\" and \"mapping_file.txt\" for processing with QIIME; (default: no)\n");
 	fprintf(fp, "          --quiet              No progress update (not quiet)\n");
 	fprintf(fp, " Miscellaneous:\n");
-	fprintf(fp, "          -t, --threads <int>    Number of concurrent threads [1, 32]; (1)\n");
+	fprintf(fp, "          -i, --intelligent     For mate-pair mode, whether to redistribute reads based on junction information; (no)\n");
+	fprintf(fp, "          -t, --threads <int>   Number of concurrent threads [1, 32]; (1)\n");
 	fprintf(fp, "\nEXAMPLES:\n");
 	fprintf(fp, "          %s -Q 9 -t 2 -x adapters.fa sample.fastq -o trimmed\n", program);
 	fprintf(fp, "          %s -x %s -q 3 sample-pair1.fq.gz sample-pair2.fq.gz\n", program, ILLUMINA_ADAPTER_PREFIX);
 	fprintf(fp, "          %s -x %s -l 16 -L 30 -d 0 srna.fastq\n", program, ILLUMINA_SRNA_ADAPTER);
 	fprintf(fp, "          %s -m mp -i lmp-pair1.fastq lmp-pair2.fastq\n", program);
-	fprintf(fp, "          %s -m ap --barcodeonly --cut 0,6 -x forward-primers.fa -y reverse-primers.fa mix-pair1.fastq mix-pair2.fastq\n", program);
+	fprintf(fp, "          %s -m ap --cut 0,6 --qiime -x forward-primers.fa -y reverse-primers.fa mix-pair1.fastq mix-pair2.fastq\n", program);
 }
 
 void cParameter::PrintSimpleUsage(char * program, FILE * fp)
@@ -395,10 +397,10 @@ void cParameter::printRelatedFiles(FILE * fp)
 		else
 			fprintf(fp, "Input file:\t%s\n", input[0]);
 		if(bStdout){
-			fprintf(fp, "trimmed:\tSTDOUT\n");
+			fprintf(fp, "%s:\tSTDOUT\n", pDecorate);
 		}
 		else{
-			fprintf(fp, "trimmed:\t");
+			fprintf(fp, "%s:\t", pDecorate);
 			for(i=0; i<int(output.size()); i++){
 				if(i > 0)
 					fprintf(fp, "; ");
@@ -406,14 +408,14 @@ void cParameter::printRelatedFiles(FILE * fp)
 			}
 			fprintf(fp, "\n");
 			if(!untrimmed.empty()){
-				fprintf(fp, "untrimmed:\t%s\n", untrimmed.c_str());
+				fprintf(fp, "un%s:\t%s\n", pDecorate, untrimmed.c_str());
 			}
 		}
 	}
 	else{
 		fprintf(fp, "Input file:\t%s\n", input[0]);
 		fprintf(fp, "Paired file:\t%s\n", input[1]);
-		fprintf(fp, "trimmed:\t");
+		fprintf(fp, "%s:\t", pDecorate);
 		for(i=0; i<int(output.size()); i++){
 			if(i > 0)
 				fprintf(fp, "; ");
@@ -421,7 +423,11 @@ void cParameter::printRelatedFiles(FILE * fp)
 		}
 		fprintf(fp, "\n");
 		if(!untrimmed.empty()){
-			fprintf(fp, "untrimmed:\t%s, %s\n", untrimmed.c_str(), untrimmed2.c_str());
+			fprintf(fp, "%s:\t%s, %s\n", pDecorate, untrimmed.c_str(), untrimmed2.c_str());
+		}
+		if(bQiime){
+			fprintf(fp, "barcode file:\t%s\n", barcodes.c_str());
+			fprintf(fp, "mapping file:\t%s\n", mapfile.c_str());
 		}
 	}
 }
@@ -510,7 +516,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 				fprintf(fp, "-- redistribute reads based on junction information (-i):\tyes\n");
 			}
 		}
-		else if(trimMode != TRIM_PE){
+		else if( (trimMode != TRIM_PE) && !(trimMode & TRIM_AP) ){
 			fprintf(fp, "-- minimum overlap length for adapter detection (-k):\t");
 			if(minK == INT_MAX){
 				fprintf(fp, "inf\n");
@@ -527,9 +533,8 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:ao:z1Q:k:t:i*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:#o:z1Q:k:t:i*vh";
 	OPTION_ITEM longOptions[] = {
-		{"barcodeonly", 'a'},
 		{"barcode", 'b'},
 		{"mode", 'm'},
 		{"end-quality", 'q'},
@@ -544,6 +549,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"compress", 'z'},
 		{"cut", 'c'}, // hard clip for clipping 6bp or 8bp tags from amplicon reads
 					  // example: --cut 0,6 for cutting leading 6 bp from read matches reverse primer
+		{"qiime", '#'},
 		{"intelligent", 'i'},
 		{"quiet", '*'},
 		{"version", 'v'},
@@ -737,13 +743,15 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				}
 				iCutF = atoi(fnum);
 				iCutR = atoi(rnum);
-				if( (iCutF < 0) || (iCutR < 0) ){
-					sprintf(errMsg, "invalid parameter: --cut %s'", argv[i]);
+				if(iCutF < 0) iCutF = 0;
+				if(iCutR < 0) iCutR = 0;
+				if( ((iCutF + iCutR) == 0) || ((iCutF + iCutR) > 24) ){
+					sprintf(errMsg, "invalid parameter: \"--cut %s\", the combined length should be in the range of (0, 24]", argv[i]);
 					iRet = -2;
 					break;
 				}
 			}
-			bDontTrim = true;
+			bClip = true;
 			break;
 		case '1':
 			bStdout = true;
@@ -768,9 +776,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		case 'b':
 			bBarcode = true;
 			break;
-		case 'a':
-			bBarcode = true;
-			bDontTrim = true;
+		case '#':
+			bQiime = true;
 			break;
 		case 'i':
 			bRedistribute = true;
@@ -790,6 +797,15 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	}
 
 	// input and output
+	if(bQiime){
+		if(!bClip){
+			sprintf(errMsg, "--qiime option should only be used with --cut option\n");
+			return -2;
+		}
+		if(bBarcode){
+			bBarcode = false;
+		}
+	}
 	if(nFileCnt == 0){
 		if(!bStdin){
 			sprintf(errMsg, "No input file specified");
@@ -808,7 +824,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			return -2;
 		}
 		if(bBarcode){
-			sprintf(errMsg, "STDOUT can not be used for demultiplexing (-%c)", (bDontTrim ? 'a' : 'b') );
+			sprintf(errMsg, "STDOUT can not be used for demultiplexing (-b)" );
 			return -2;
 		}
 		if(bSetO){
@@ -826,16 +842,43 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		if( trimMode == TRIM_DEFAULT ){
 			trimMode = TRIM_TAIL;
 		}
+		if(!bSetK){
+			minK = max(int(4 - 10 * epsilon), 1);
+		}
+		if(bClip){
+			sprintf(errMsg, "-c option should only be used in amplicon mode\n");
+			return -2;
+		}
 	}
 	else{ // nFileCnt == 2
-		if( trimMode == TRIM_MP ) {
-			bDontTrim = false;
-		}
-		else if( trimMode == TRIM_AP ){ // for amplicon paired-end
+		if( trimMode == TRIM_AP ){ // for amplicon paired-end
 			trimMode = TRIM_MODE(trimMode | TRIM_HEAD);
+			if(bSetK){
+				if(minK != INT_MAX){
+					sprintf(errMsg, "-k should be set to \"inf\" in amplicon mode\n");
+					return -2;
+				}
+			}
+			else{
+				minK = INT_MAX;
+			}
 		}
 		else{
-			trimMode = TRIM_MODE(trimMode | TRIM_PE);
+			if(bClip){
+				sprintf(errMsg, "-c option should only be used in amplicon mode\n");
+				return -2;
+			}
+			if(trimMode == TRIM_MP){
+				if(!bSetK){
+					minK = j_str.length() / 2;
+				}
+			}
+			else{
+				trimMode = TRIM_MODE(trimMode | TRIM_PE);
+				if(!bSetK){
+					minK = max(int(4 - 10 * epsilon), 1);
+				}
+			}
 		}
 	}
 	// adapters
@@ -973,9 +1016,10 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		for(j=0; j<int(colNames.size())-1; j++){
 			bvec.push_back(true);
 		}
-		bMatrix.push_back(bBarcode ? vector<bool>(colNames.size(), false) : bvec);
+		bool bStrict = bBarcode || (trimMode & TRIM_AP);
+		bMatrix.push_back(bStrict ? vector<bool>(colNames.size(), false) : bvec);
 		for(j=0; j<int(rowNames.size()-1); j++){
-			bMatrix.push_back(bBarcode ? bvec : vector<bool>(colNames.size(), true));
+			bMatrix.push_back(bStrict ? bvec : vector<bool>(colNames.size(), true));
 		}
 	}
 	// penalty
@@ -988,9 +1032,6 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			delta = epsilon;
 		}
 	}
-	if(!bSetK){
-		minK = (trimMode == TRIM_MP) ? (j_str.length() / 2) : max(int(4 - 10 * epsilon), 1);
-	}
 	// filtering
 	if(bSetL){
 		if(maxLen < minLen){
@@ -1002,7 +1043,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	if(bStdout){
 		return iRet;
 	}
-	const char * pDecorate = ( bDontTrim ? ( (iCutF|iCutR) ? "clipped" : "assigned") : "trimmed");
+	pDecorate = (bBarcode ? "assigned" : "trimmed");
 	char * end;
 	if(bSetO){
 		end = strrchr(basename, '/');
@@ -1014,30 +1055,55 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				sprintf(errMsg, "Can not create directory \"%s\"", basename);
 				return -2;
 			}
+			if(bQiime){
+				barcodes.assign(string(trimmed) + string("barcodes.fastq"));
+				mapfile.assign(string(trimmed) + string("mapping_file.txt"));
+			}
 			sprintf(trimmed + (end - basename) + 1, "%s", pDecorate);
 			sprintf(end+1, "un%s", pDecorate);
 		}
 		else{
-			strcat(trimmed, "-"); strcat(trimmed, pDecorate);
-			strcat(basename, "-un"); strcat(basename, pDecorate);
+			if(strcmp(basename, ".") == 0){
+				sprintf(trimmed, "%s", pDecorate);
+				sprintf(basename, "un%s", pDecorate);
+				if(bQiime){
+					barcodes.assign("barcodes.fastq");
+					mapfile.assign("mapping_file.txt");
+				}
+			}
+			else{
+				if(bQiime){
+					barcodes.assign(string(trimmed) + string("-barcodes.fastq"));
+					mapfile.assign(string(trimmed) + string("-mapping_file.txt"));
+				}
+				strcat(trimmed, "-"); strcat(trimmed, pDecorate);
+				strcat(basename, "-un"); strcat(basename, pDecorate);
+			}
 		}
 	}
 	else{
 		if(bStdin){
 			sprintf(trimmed, "%s", pDecorate);
 			sprintf(basename, "un%s", pDecorate);
+			if(bQiime){
+				barcodes.assign("barcodes.fastq");
+				mapfile.assign("mapping_file.txt");
+			}
 		}
 		else{
 			gzstrncpy(trimmed, input[0], MAX_PATH);
 			end = occOfLastDot(trimmed);
 			end[0] = '\0';
 			strcpy(basename, trimmed);
+			if(bQiime){
+				barcodes.assign(string(trimmed) + string("-barcodes.fastq"));
+				mapfile.assign(string(trimmed) + string("-mapping_file.txt"));
+			}
 			sprintf(end, "-%s", pDecorate);
 			sprintf(basename + (end - trimmed), "-un%s", pDecorate);
 		}
 	}
-	strcpy(logfile, trimmed);
-	strcat(logfile, ".log");
+	sprintf(logfile, "%s.log", trimmed);
 
 	string fileName, fileName2;
 	if(bBarcode){
@@ -1047,7 +1113,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				for(j=0; j<int(colNames.size()); j++){
 					if(!bMatrix[i][j]) continue;
 					string barcode(rowNames[i] + colNames[j]);
-					barcodes.push_back(barcode);
+					barcodeNames.push_back(barcode);
 					fileName.assign(string(trimmed) + string("-") + barcode + string("-pair1.fastq"));
 					fileName2.assign(string(trimmed) + string("-") + barcode + string("-pair2.fastq"));
 					if(outputFormat == COMPRESS_GZ){
@@ -1068,7 +1134,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		else{
 			for(i=0; i<int(adapters.size()); i++){
 				sprintf(buffer, "-%02d", (i+1));
-				barcodes.push_back(string(buffer));
+				barcodeNames.push_back(string(buffer));
 				fileName.assign(string(trimmed) + string(buffer) + string(".fastq"));
 				if(outputFormat == COMPRESS_GZ){
 					fileName += string(".gz");
@@ -1091,6 +1157,14 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 			output.push_back(fileName);
 			output2.push_back(fileName2);
+			if(trimMode & TRIM_AP){
+				untrimmed.assign(string(basename) + string("-pair1.fastq"));
+				untrimmed2.assign(string(basename) + string("-pair2.fastq"));
+				if(outputFormat == COMPRESS_GZ){
+					untrimmed += string(".gz");
+					untrimmed2 += string(".gz");
+				}
+			}
 		}
 		else{
 			fileName.assign(string(trimmed) + string(".fastq"));

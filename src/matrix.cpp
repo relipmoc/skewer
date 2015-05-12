@@ -138,6 +138,7 @@ uint64 chrVadp[CD_CNT][CD_CNT] = {
 const double MIN_PENALTY = 0.477121255;
 const double MEAN_PENALTY = 2.477121255;
 const double MAX_PENALTY = 4.477121255;
+const double EPSILON = (MIN_PENALTY / 10);
 ///////////////////////////////////////
 
 bool cElementSet::insert (const ELEMENT& val)
@@ -363,7 +364,7 @@ bool cAdapter::align(char * read, size_t rLen, uchar * qual, size_t qLen, cEleme
 				}
 				else{
 					elem = queue.back();
-					dMaxPenalty = elem.score;
+					dMaxPenalty = elem.score + ((trimMode == TRIM_TAIL) ? EPSILON : 0);
 					elem.score = (len * cMatrix::dMu - elem.score) / (len + 1); // normalization
 				}
 				bDetermined = true;
@@ -432,11 +433,37 @@ bool cAdapter::align(char * read, size_t rLen, uchar * qual, size_t qLen, cEleme
 	return bDetermined;
 }
 
+void cAdapter::initBarcode(int iCut)
+{
+	int i, k;
+	if(iCut > (int)len) iCut = (int)len;
+	for(k=0,i=0; i<iCut; i++){
+		masked[i] = (sequence[i] == 'N');
+		if(masked[i]) continue;
+		barcode[k++] = sequence[i];
+	}
+	barcode[k] = '\0';
+	for(k=0; i<(int)len; i++){
+		if(sequence[i] == '\0') break;
+		primer[k++] = sequence[i];
+	}
+	primer[k] = '\0';
+}
+
 deque<cAdapter> cMatrix::firstAdapters;
 deque<cAdapter> cMatrix::secondAdapters;
 deque<cAdapter> cMatrix::junctionAdapters;
 vector<int> cMatrix::junctionLengths;
 vector< vector<int> > cMatrix::indices;
+int cMatrix::iIdxCnt = 0;
+vector<bool *> cMatrix::fw_masked;
+vector<bool *> cMatrix::rv_masked;
+vector<string> cMatrix::fw_barcodes;
+vector<string> cMatrix::rv_barcodes;
+vector<string> cMatrix::fw_primers;
+vector<string> cMatrix::rv_primers;
+vector<int> cMatrix::rowBc;
+vector<int> cMatrix::colBc;
 bool cMatrix::bShareAdapter = false;
 double cMatrix::dEpsilon = 0.15;
 double cMatrix::dEpsilonIndel = 0.03;
@@ -532,14 +559,44 @@ void cMatrix::CalculateJunctionLengths()
 void cMatrix::CalculateIndices(vector< vector<bool> > &bMatrix, int nRow, int nCol)
 {
 	int i, j;
-	int idx = 0;
+	rowBc.clear();
+	colBc.clear();
 	indices.resize(nRow, vector<int>(nCol, -1));
+	iIdxCnt = 0;
 	for(i=0; i<nRow; i++){
 		for(j=0; j<nCol; j++){
 			if(bMatrix[i][j]){
-				indices[i][j] = idx++;
+				rowBc.push_back(i);
+				colBc.push_back(j);
+				indices[i][j] = iIdxCnt++;
 			}
 		}
+	}
+}
+
+void cMatrix::InitBarcodes(deque<cAdapter> & fw_adapters, int iCutF, deque<cAdapter> & rv_adapters, int iCutR)
+{
+	deque<cAdapter>::iterator it_adapter;
+	cAdapter * pAdapter;
+	fw_masked.clear(); fw_masked.push_back(NULL);
+	fw_barcodes.clear(); fw_barcodes.push_back(string(""));
+	fw_primers.clear(); fw_primers.push_back(string(""));
+	for(it_adapter=fw_adapters.begin(); it_adapter!=fw_adapters.end(); it_adapter++){
+		pAdapter = &(*it_adapter);
+		pAdapter->initBarcode(iCutF);
+		fw_masked.push_back(pAdapter->getMasked());
+		fw_barcodes.push_back(string(pAdapter->getBarcode()));
+		fw_primers.push_back(string(pAdapter->getPrimer()));
+	}
+	rv_masked.clear(); rv_masked.push_back(NULL);
+	rv_barcodes.clear(); rv_barcodes.push_back(string(""));
+	rv_primers.clear(); rv_primers.push_back(string(""));
+	for(it_adapter=rv_adapters.begin(); it_adapter!=rv_adapters.end(); it_adapter++){
+		pAdapter = &(*it_adapter);
+		pAdapter->initBarcode(iCutR);
+		rv_masked.push_back(pAdapter->getMasked());
+		rv_barcodes.push_back(string(pAdapter->getBarcode()));
+		rv_primers.push_back(string(pAdapter->getPrimer()));
 	}
 }
 
@@ -765,6 +822,10 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 	return index;
 }
 
+// return value
+//  0: forward-reverse
+//  1: reverse-forward
+// -1: no match
 int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
 	char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2)
 {
@@ -776,13 +837,16 @@ int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual,
 	index.pos = index2.pos = int(rLen);
 	index.bc = index2.bc = 0;
 	int i;
+	size_t nLen;
 	deque<ELEMENT>::iterator it_element, it_element2;
 	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
-		if(pAdapter->align(read, rLen, qual, qLen, result, i)){
+		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
+		if(pAdapter->align(read, nLen, qual, qLen, result, i)){
 			result1.push_back(*result.begin());
 		}
-		if(pAdapter->align(read2, rLen2, qual2, qLen2, result, i)){
+		nLen = (pAdapter->len < rLen2 ? pAdapter->len : rLen2);
+		if(pAdapter->align(read2, nLen, qual2, qLen2, result, i)){
 			result3.push_back(*result.begin());
 		}
 	}
@@ -811,14 +875,16 @@ int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual,
 			}
 		}
 		index.bc = bc;
-		return ((bc >= 0) ? 1 : 0);
+		return (bc < 0) ? -1 : 0;
 	}
 	for(i=0,it_adapter=secondAdapters.begin(); it_adapter!=secondAdapters.end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
-		if(pAdapter->align(read2, rLen2, qual2, qLen2, result, i)){
+		nLen = (pAdapter->len < rLen2 ? pAdapter->len : rLen2);
+		if(pAdapter->align(read2, nLen, qual2, qLen2, result, i)){
 			result2.push_back(*result.begin());
 		}
-		if(pAdapter->align(read, rLen, qual, qLen, result, i)){
+		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
+		if(pAdapter->align(read, nLen, qual, qLen, result, i)){
 			result4.push_back(*result.begin());
 		}
 	}
@@ -865,7 +931,57 @@ int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual,
 		}
 	}
 	index.bc = bc;
-	return ((bc < 0) ? 0 : (bReverse ? 2 : 1));
+	return (bc < 0) ? -1 : bReverse;
+}
+
+bool cMatrix::PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2, char * barcodeQual, char * qual, char * qual2)
+{
+	assert(bcIdx >= 0);
+	bool *mask = fw_masked[rowBc[bcIdx]];
+	bool *mask2 = rv_masked[colBc[bcIdx]];
+	if( (mask == NULL) || (mask2 == NULL) ){
+		return false;
+	}
+	int n = 0;
+	int i;
+	for(i=0; i<len; i++){
+		if(!mask[i]){
+			barcodeSeq[n] = seq[i];
+			barcodeQual[n] = qual[i];
+			n++;
+		}
+	}
+	for(i=0; i<len2; i++){
+		if(!mask2[i]){
+			barcodeSeq[n] = seq2[i];
+			barcodeQual[n] = qual2[i];
+			n++;
+		}
+	}
+	return true;
+}
+
+bool cMatrix::PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2)
+{
+	assert(bcIdx >= 0);
+	bool *mask = fw_masked[rowBc[bcIdx]];
+	bool *mask2 = rv_masked[colBc[bcIdx]];
+	if( (mask == NULL) || (mask2 == NULL) ){
+		return false;
+	}
+	int n = 0;
+	int i;
+	for(i=0; i<len; i++){
+		if(!mask[i]){
+			barcodeSeq[n++] = seq[i];
+		}
+	}
+	for(i=0; i<len2; i++){
+		if(!mask2[i]){
+			barcodeSeq[n++] = seq2[i];
+		}
+	}
+	return true;
 }
 
 INDEX cMatrix::mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen)
