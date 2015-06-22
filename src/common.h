@@ -50,6 +50,7 @@ const int MAX_ADAPTER_CNT = 96;
 
 typedef struct tag_INDEX{
 	int pos;
+	int pos2;
 	int bc;
 }INDEX;
 

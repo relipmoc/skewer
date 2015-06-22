@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.125";
-const char * DATE = "May 7, 2015";
+const char * VERSION = "0.1.126";
+const char * DATE = "June 22, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -246,6 +246,9 @@ int cParameter::ReadMatrix(const char * fileName)
 	if(line != NULL)
 		free(line);
 	fclose(fp);
+	if( (rowNames.size() > 0) && (colNames.size() > 0) ){
+		bMatrix[0][0] = false;
+	}
 	return iRet;
 }
 
@@ -837,47 +840,27 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		}
 	}
 	// trimming mode
-	if(nFileCnt < 2){
-		trimMode = TRIM_MODE(trimMode & TRIM_ANY);
-		if( trimMode == TRIM_DEFAULT ){
-			trimMode = TRIM_TAIL;
+	if( trimMode == TRIM_AP ){ // for amplicon, paired-end or single end
+		trimMode = TRIM_MODE(trimMode | TRIM_HEAD);
+		if( bSetK && (minK != INT_MAX) ){
+			sprintf(errMsg, "-k should be set to \"inf\" in amplicon mode\n");
+			return -2;
 		}
-		if(!bSetK){
-			minK = max(int(4 - 10 * epsilon), 1);
-		}
+	}
+	else{
 		if(bClip){
 			sprintf(errMsg, "-c option should only be used in amplicon mode\n");
 			return -2;
 		}
-	}
-	else{ // nFileCnt == 2
-		if( trimMode == TRIM_AP ){ // for amplicon paired-end
-			trimMode = TRIM_MODE(trimMode | TRIM_HEAD);
-			if(bSetK){
-				if(minK != INT_MAX){
-					sprintf(errMsg, "-k should be set to \"inf\" in amplicon mode\n");
-					return -2;
-				}
-			}
-			else{
-				minK = INT_MAX;
+		if(nFileCnt < 2){
+			trimMode = TRIM_MODE(trimMode & TRIM_ANY);
+			if( trimMode == TRIM_DEFAULT ){
+				trimMode = TRIM_TAIL;
 			}
 		}
-		else{
-			if(bClip){
-				sprintf(errMsg, "-c option should only be used in amplicon mode\n");
-				return -2;
-			}
-			if(trimMode == TRIM_MP){
-				if(!bSetK){
-					minK = j_str.length() / 2;
-				}
-			}
-			else{
+		else{ // nFileCnt == 2
+			if(trimMode != TRIM_MP){
 				trimMode = TRIM_MODE(trimMode | TRIM_PE);
-				if(!bSetK){
-					minK = max(int(4 - 10 * epsilon), 1);
-				}
 			}
 		}
 	}
@@ -909,39 +892,39 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		x_str.assign(ILLUMINA_PAIR1_ADAPTER_PREFIX);
 		adapters.push_back(x_str);
 	}
+	if(bSetY){ // specified by command
+		if(bYFile){
+			int iReadRet = ReadFasta(y_str.c_str(), adapters2);
+			if(iReadRet < 0){
+				if(iReadRet == -1)
+					sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", y_str.c_str());
+				else
+					sprintf(errMsg, "\"%s\" is not a valid FASTA file", y_str.c_str());
+				return -2;
+			}
+		}
+		else{
+			if(int(y_str.length()) > MAX_ADAPTER_LEN){
+				string tmpString;
+				if( (trimMode & TRIM_ANY) == TRIM_HEAD )
+					tmpString.assign(y_str.c_str() + y_str.length() - MAX_ADAPTER_LEN);
+				else
+					tmpString.assign(y_str.c_str(), 0, MAX_ADAPTER_LEN);
+				y_str.assign(tmpString);
+			}
+			adapters2.push_back(y_str);
+		}
+	}
+	else{ // default
+		if(bSetX){
+			bShareAdapter = true;
+		}
+		else{
+			y_str.assign(ILLUMINA_PAIR2_ADAPTER_PREFIX);
+			adapters2.push_back(y_str);
+		}
+	}
 	if(nFileCnt == 2){
-		if(bSetY){ // specified by command
-			if(bYFile){
-				int iReadRet = ReadFasta(y_str.c_str(), adapters2);
-				if(iReadRet < 0){
-					if(iReadRet == -1)
-						sprintf(errMsg, "Can not read adapter sequences from FASTA file \"%s\"", y_str.c_str());
-					else
-						sprintf(errMsg, "\"%s\" is not a valid FASTA file", y_str.c_str());
-					return -2;
-				}
-			}
-			else{
-				if(int(y_str.length()) > MAX_ADAPTER_LEN){
-					string tmpString;
-					if( (trimMode & TRIM_ANY) == TRIM_HEAD )
-						tmpString.assign(y_str.c_str() + y_str.length() - MAX_ADAPTER_LEN);
-					else
-						tmpString.assign(y_str.c_str(), 0, MAX_ADAPTER_LEN);
-					y_str.assign(tmpString);
-				}
-				adapters2.push_back(y_str);
-			}
-		}
-		else{ // default
-			if(bSetX){
-				bShareAdapter = true;
-			}
-			else{
-				y_str.assign(ILLUMINA_PAIR2_ADAPTER_PREFIX);
-				adapters2.push_back(y_str);
-			}
-		}
 		if(trimMode == TRIM_MP){
 			if(bSetJ){ // specified by command
 				if(bXFile){
@@ -1021,6 +1004,10 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		for(j=0; j<int(rowNames.size()-1); j++){
 			bMatrix.push_back(bStrict ? bvec : vector<bool>(colNames.size(), true));
 		}
+	}
+	if(!bSetK){
+		minK = (trimMode & TRIM_AP) ? INT_MAX :
+			   (trimMode == TRIM_MP) ? (j_str.length() / 2) : max(int(4 - 10 * epsilon), 1);
 	}
 	// penalty
 	if(delta < 0) delta = 0;
@@ -1132,14 +1119,30 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 		}
 		else{
-			for(i=0; i<int(adapters.size()); i++){
-				sprintf(buffer, "-%02d", (i+1));
-				barcodeNames.push_back(string(buffer));
-				fileName.assign(string(trimmed) + string(buffer) + string(".fastq"));
-				if(outputFormat == COMPRESS_GZ){
-					fileName += string(".gz");
+			if( (trimMode & TRIM_AP) != 0 ){
+				for(i=0; i<int(rowNames.size()); i++){
+					for(j=0; j<int(colNames.size()); j++){
+						if(!bMatrix[i][j]) continue;
+						string barcode(rowNames[i] + colNames[j]);
+						barcodeNames.push_back(barcode);
+						fileName.assign(string(trimmed) + string("-") + barcode + string(".fastq"));
+						if(outputFormat == COMPRESS_GZ){
+							fileName += string(".gz");
+						}
+						output.push_back(fileName);
+					}
 				}
-				output.push_back(fileName);
+			}
+			else{
+				for(i=0; i<int(adapters.size()); i++){
+					sprintf(buffer, "-%02d", (i+1));
+					barcodeNames.push_back(string(buffer));
+					fileName.assign(string(trimmed) + string(buffer) + string(".fastq"));
+					if(outputFormat == COMPRESS_GZ){
+						fileName += string(".gz");
+					}
+					output.push_back(fileName);
+				}
 			}
 			untrimmed.assign(string(basename) + string(".fastq"));
 			if(outputFormat == COMPRESS_GZ){
@@ -1172,6 +1175,12 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				fileName += string(".gz");
 			}
 			output.push_back(fileName);
+			if(trimMode & TRIM_AP){
+				untrimmed.assign(string(basename) + string(".fastq"));
+				if(outputFormat == COMPRESS_GZ){
+					untrimmed += string(".gz");
+				}
+			}
 		}
 	}
 

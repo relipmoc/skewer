@@ -193,7 +193,8 @@ void cAdapter::Init2(char * seq, size_t sLen)
 	int i;
 	// construct sequence
 	if(int(sLen) > MAX_ADAPTER_LEN){
-		seq += (sLen - MAX_ADAPTER_LEN);
+		// seq += (sLen - MAX_ADAPTER_LEN);
+		// the head instead of the tail should be used
 		this->len = MAX_ADAPTER_LEN;
 	}
 	else{
@@ -515,6 +516,19 @@ bool cMatrix::CalcRevCompScore(char * seq, char * seq2, int len, uchar * qual, u
 	return true;
 }
 
+string cMatrix::GetRevComp(char * seq, int len)
+{
+	char sequence[MAX_ADAPTER_LEN+1];
+	if(len > MAX_ADAPTER_LEN){
+		seq += (len - MAX_ADAPTER_LEN);
+		len = MAX_ADAPTER_LEN;
+	}
+    for(int i=0; i<int(len); i++) 
+        sequence[i] = character[complement[codeMap[uchar(seq[len-1-i])]]];
+    sequence[len] = '\0';
+	return string(sequence);
+}
+
 //// public functions
 void cMatrix::InitParameters(double dEpsilon, double dEpsilonIndel, int baseQual, bool bShareAdapter)
 {
@@ -826,8 +840,118 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 //  0: forward-reverse
 //  1: reverse-forward
 // -1: no match
-int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
-	char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2)
+int cMatrix::findAdaptersInARead(char * read, size_t rLen, INDEX &index)
+{
+	int bc = -1;
+	deque<cAdapter>::iterator it_adapter;
+	cAdapter * pAdapter;
+	cElementSet result;
+	deque<ELEMENT> result1, result2, result3, result4;
+	string str2 = GetRevComp(read, rLen);
+	char * read2 = (char *)str2.c_str();
+	index.pos = int(rLen);
+	index.bc = 0;
+	int i;
+	size_t nLen;
+	deque<ELEMENT>::iterator it_element, it_element2;
+	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
+		pAdapter = &(*it_adapter);
+		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
+		if(pAdapter->align(read, nLen, NULL, 0, result, i)){
+			result1.push_back(*result.begin());
+		}
+		if(pAdapter->align(read2, nLen, NULL, 0, result, i)){
+			result3.push_back(*result.begin());
+		}
+	}
+	ELEMENT eElement;
+	memset((void *)&eElement, 0, sizeof(ELEMENT));
+	double maxScore = -1;
+	if(bShareAdapter){
+		if(result1.empty() ^ result3.empty()){
+			if(result1.empty()){
+				result1.push_back(eElement);
+			}
+			else{ // result3.empty()
+				result3.push_back(eElement);
+			}
+		}
+		for(it_element=result1.begin(); it_element!=result1.end(); it_element++){
+			for(it_element2=result3.begin(); it_element2!=result3.end(); it_element2++){
+				if(indices[it_element->idx.bc][it_element2->idx.bc] < 0)
+					continue;
+				if(it_element->score + it_element2->score > maxScore){
+					maxScore = it_element->score + it_element2->score;
+					index.pos= it_element->idx.pos;
+					index.pos2 = it_element2->idx.pos;
+					bc = indices[it_element->idx.bc][it_element2->idx.bc];
+				}
+			}
+		}
+		index.bc = bc;
+		return (bc < 0) ? -1 : 0;
+	}
+	for(i=0,it_adapter=secondAdapters.begin(); it_adapter!=secondAdapters.end(); it_adapter++,i++){
+		pAdapter = &(*it_adapter);
+		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
+		if(pAdapter->align(read2, nLen, NULL, 0, result, i)){
+			result2.push_back(*result.begin());
+		}
+		if(pAdapter->align(read, nLen, NULL, 0, result, i)){
+			result4.push_back(*result.begin());
+		}
+	}
+	if(result1.empty() ^ result2.empty()){
+		if(result1.empty()){
+			result1.push_back(eElement);
+		}
+		else{ // result2.empty()
+			result2.push_back(eElement);
+		}
+	}
+	for(it_element=result1.begin(); it_element!=result1.end(); it_element++){
+		for(it_element2=result2.begin(); it_element2!=result2.end(); it_element2++){
+			if(indices[it_element->idx.bc][it_element2->idx.bc] < 0)
+				continue;
+			if(it_element->score + it_element2->score > maxScore){
+				maxScore = it_element->score + it_element2->score;
+				index.pos = it_element->idx.pos;
+				index.pos2 = it_element2->idx.pos;
+				bc = indices[it_element->idx.bc][it_element2->idx.bc];
+			}
+		}
+	}
+	bool bReverse = false;
+	if(result3.empty() ^ result4.empty()){
+		if(result3.empty()){
+			result3.push_back(eElement);
+		}
+		else{ // result4.empty()
+			result4.push_back(eElement);
+		}
+	}
+	for(it_element=result3.begin(); it_element!=result3.end(); it_element++){
+		for(it_element2=result4.begin(); it_element2!=result4.end(); it_element2++){
+			if(indices[it_element->idx.bc][it_element2->idx.bc] < 0)
+				continue;
+			if(it_element->score + it_element2->score > maxScore){
+				maxScore = it_element->score + it_element2->score;
+				index.pos = it_element2->idx.pos;
+				index.pos2 = it_element->idx.pos;
+				bc = indices[it_element->idx.bc][it_element2->idx.bc];
+				bReverse = true;
+			}
+		}
+	}
+	index.bc = bc;
+	return (bc < 0) ? -1 : bReverse;
+}
+
+// return value
+//  0: forward-reverse
+//  1: reverse-forward
+// -1: no match
+int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, char * read2, size_t rLen2, INDEX &index, INDEX &index2)
 {
 	int bc = -1;
 	deque<cAdapter>::iterator it_adapter;
@@ -842,11 +966,11 @@ int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual,
 	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
 		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
-		if(pAdapter->align(read, nLen, qual, qLen, result, i)){
+		if(pAdapter->align(read, nLen, NULL, 0, result, i)){
 			result1.push_back(*result.begin());
 		}
 		nLen = (pAdapter->len < rLen2 ? pAdapter->len : rLen2);
-		if(pAdapter->align(read2, nLen, qual2, qLen2, result, i)){
+		if(pAdapter->align(read2, nLen, NULL, 0, result, i)){
 			result3.push_back(*result.begin());
 		}
 	}
@@ -880,11 +1004,11 @@ int cMatrix::findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual,
 	for(i=0,it_adapter=secondAdapters.begin(); it_adapter!=secondAdapters.end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
 		nLen = (pAdapter->len < rLen2 ? pAdapter->len : rLen2);
-		if(pAdapter->align(read2, nLen, qual2, qLen2, result, i)){
+		if(pAdapter->align(read2, nLen, NULL, 0, result, i)){
 			result2.push_back(*result.begin());
 		}
 		nLen = (pAdapter->len < rLen ? pAdapter->len : rLen);
-		if(pAdapter->align(read, nLen, qual, qLen, result, i)){
+		if(pAdapter->align(read, nLen, NULL, 0, result, i)){
 			result4.push_back(*result.begin());
 		}
 	}
