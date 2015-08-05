@@ -104,6 +104,7 @@ public:
 	int minLen, maxLen, minAverageQual, minEndQual, nThreads;
 	int minK;
 	int iCutF, iCutR;
+	bool bCutTail;
 
 private:
 	char * occOfLastDot(char * str);

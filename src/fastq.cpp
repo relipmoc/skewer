@@ -151,6 +151,13 @@ CFILE gzopen(const char * fileName, const char * mode)
 	// maybe use zlib some day?
 	CFILE cf;
 	const char * ext = fext(fileName);
+	if(strcmp(mode, "r") == 0){
+		cf.fp = fopen(fileName, "r");
+		if(cf.fp == NULL){
+			return cf;
+		}
+		fclose(cf.fp);
+	}
 	if (strcmp(ext,"gz") == 0) {
 		char *tmp=(char *)malloc(strlen(fileName)+100);
 		if (strchr(mode, 'w')) {

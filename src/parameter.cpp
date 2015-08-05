@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.126";
-const char * DATE = "June 22, 2015";
+const char * VERSION = "0.1.127";
+const char * DATE = "August 5, 2015";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -159,6 +159,7 @@ cParameter::cParameter()
 	nThreads = 1;
 
 	iCutF = iCutR = 0;
+	bCutTail = false;
 }
 
 char * cParameter::occOfLastDot	(char * str)
@@ -342,13 +343,16 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -m, --mode <str> trimming mode; 1) single-end -- head: 5' end; tail: 3' end; any: anywhere (tail)\n");
 	fprintf(fp, "                           2) paired-end -- pe: paired-end; mp: mate-pair; ap: amplicon (pe)\n");
 	fprintf(fp, "          -b, --barcode    Demultiplex reads according to adapters/primers (no)\n");
-	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases as the barcodes in amplicon mode; (no)\n");
 	fprintf(fp, " Tolerance:\n");
 	fprintf(fp, "          -r <num> Maximum allowed error rate (normalized #errors / length of aligned region) [0, 0.5], (0.1)\n");
 	fprintf(fp, "          -d <num> Maximum allowed indel error rate [0, r], (0.03)\n");
-	fprintf(fp, "                   reciprocal is used for -r and -d when num > or = 2\n");
+	fprintf(fp, "                   reciprocal is used for -r, -e and -d when num > or = 2\n");
 	fprintf(fp, "          -k <int> Minimum overlap length for adapter detection [1, inf);\n");
 	fprintf(fp, "                   (max(1, int(4-10*r)) for single-end; (<junction length>/2) for mate-pair)\n");
+	fprintf(fp, " Clipping:\n");
+	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases as the barcodes in amplicon mode; (no)\n");
+	fprintf(fp, "          -e, --cut3            Hard clip off the 3' tailing bases if the read length is greater than\n");
+	fprintf(fp, "                                the maximum read length specified by -L; (no)\n");
 	fprintf(fp, " Filtering:\n");
 	fprintf(fp, "          -q, --end-quality  <int> Trim 3' end until specified or higher quality reached; (0)\n");
 	fprintf(fp, "          -Q, --mean-quality <int> The lowest mean quality value allowed before trimming; (0)\n");
@@ -536,7 +540,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:#o:z1Q:k:t:i*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:e#o:z1Q:k:t:i*vh";
 	OPTION_ITEM longOptions[] = {
 		{"barcode", 'b'},
 		{"mode", 'm'},
@@ -552,6 +556,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"compress", 'z'},
 		{"cut", 'c'}, // hard clip for clipping 6bp or 8bp tags from amplicon reads
 					  // example: --cut 0,6 for cutting leading 6 bp from read matches reverse primer
+		{"cut3", 'e'},
 		{"qiime", '#'},
 		{"intelligent", 'i'},
 		{"quiet", '*'},
@@ -562,8 +567,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 	char trimmed[MAX_PATH+1+100];
 	this->argc = argc;
 	this->argv = argv;
-	bool bSetX, bSetY, bSetM, bSetJ, bSetO, bSetL, bSetD, bSetK;
-	bSetX = bSetY = bSetM = bSetJ = bSetO = bSetL = bSetD = bSetK = false;
+	bool bSetX, bSetY, bSetM, bSetJ, bSetO, bSetL, bSetR, bSetD, bSetK;
+	bSetX = bSetY = bSetM = bSetJ = bSetO = bSetL = bSetR = bSetD = bSetK = false;
 	int iRet = 0;
 	int i, j;
 	char chr;
@@ -664,6 +669,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			if(epsilon < 0) epsilon = 0;
 			else if(epsilon > 2) epsilon = 1 / epsilon;
 			else if(epsilon > 0.5) epsilon = 0.5;
+			bSetR = true;
 			break;
 		case 'd':
 			if( (argv[i][0] < '0' || argv[i][0] > '9') && argv[i][0] != '.' ){
@@ -671,6 +677,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				break;
 			}
 			delta = atof(argv[i]);
+			if(delta < 0) delta = 0;
+			else if(delta > 2) delta = 1 / delta;
 			bSetD = true;
 			break;
 		case 'q':
@@ -755,6 +763,9 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 				}
 			}
 			bClip = true;
+			break;
+		case 'e':
+			bCutTail = true;
 			break;
 		case '1':
 			bStdout = true;
@@ -846,6 +857,8 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			sprintf(errMsg, "-k should be set to \"inf\" in amplicon mode\n");
 			return -2;
 		}
+		if(!bSetD)
+			delta = 0.1;
 	}
 	else{
 		if(bClip){
@@ -1010,14 +1023,13 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			   (trimMode == TRIM_MP) ? (j_str.length() / 2) : max(int(4 - 10 * epsilon), 1);
 	}
 	// penalty
-	if(delta < 0) delta = 0;
-	else{
-		if(delta > 2){
-			delta = 1 / delta;
-		}
-		if(delta > epsilon){
+	if(bSetR){
+		if(delta > epsilon)
 			delta = epsilon;
-		}
+	}
+	else{
+		if(delta > epsilon)
+			epsilon = delta;
 	}
 	// filtering
 	if(bSetL){

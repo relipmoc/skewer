@@ -153,7 +153,7 @@ private:
 	static string GetRevComp(char * seq, int len);
 
 public:
-	static void InitParameters(double dEpsilon, double dEpsilonIndel, int baseQual, bool bShareAdapter);
+	static void InitParameters(enum TRIM_MODE trimMode, double dEpsilon, double dEpsilonIndel, int baseQual, bool bShareAdapter);
 	static void AddAdapter(deque<cAdapter> & adapters, char * vector, size_t len, TRIM_MODE trimMode);
 	static void CalculateJunctionLengths();
 	static void CalculateIndices(vector< vector<bool> > &bMatrix, int nRow, int nCol);
@@ -168,8 +168,9 @@ public:
 	static INDEX findJuncAdapter(char * read, size_t rLen, uchar * qual, size_t qLen);
 
 	static INDEX findAdapterWithPE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen);
-	static int findAdaptersBidirectionally(char * read, size_t rLen, char * read2, size_t rLen2, INDEX &index, INDEX &index2);
-	static int findAdaptersInARead(char * read, size_t rLen, INDEX &index);
+	static int findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
+			char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2);
+	static int findAdaptersInARead(char * read, size_t rLen, uchar * qual, size_t qLen, INDEX &index);
 	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2, char * barcodeQual, char * qual, char * qual2);
 	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2);
 	static INDEX mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen);

@@ -97,6 +97,7 @@ public:
 	bool bRedistribute;
 	bool bQuiet;
 	bool bMatepair;
+	bool bCutTail;
 	int iCutF, iCutR;
 
 	int getMinLen(){
@@ -117,6 +118,7 @@ public:
 		bFilterNs = false;
 		bFilterUndetermined = false;
 		bRedistribute = false;
+		bCutTail = false;
 		minLen = allocLen = 0;
 		maxLen = INT_MAX;
 		nBarcodes = 0;
@@ -204,6 +206,7 @@ public:
 		this->bFilterNs = pParameter->bFilterNs;
 		this->bFilterUndetermined = pParameter->bFilterUndetermined;
 		this->bRedistribute = pParameter->bRedistribute;
+		this->bCutTail = pParameter->bCutTail;
 	}
 	bool openOutputFiles(cParameter * pParameter){
 		bPaired = (pParameter->nFileCnt >= 2);
@@ -687,7 +690,7 @@ public:
 			mt->w[i].pBuffer = pBuffer;
 			mt->w[i].size = size;
 		}
-		cMatrix::InitParameters(pParameter->epsilon, pParameter->delta, pParameter->baseQual, pParameter->bShareAdapter);
+		cMatrix::InitParameters(pParameter->trimMode, pParameter->epsilon, pParameter->delta, pParameter->baseQual, pParameter->bShareAdapter);
 		cMatrix::iMinOverlap = pParameter->minK;
 		vector<string> *pAdapters;
 		TRIM_MODE trimMode = ((pParameter->trimMode & TRIM_ANY) == TRIM_DEFAULT) ? TRIM_TAIL : TRIM_MODE(pParameter->trimMode & TRIM_ANY);
@@ -744,6 +747,7 @@ void * mt_worker(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
+	bool bCutTail = pStats->bCutTail;
 
 	RECORD * pBuffer, *pRecord;
 	TASK task;
@@ -856,8 +860,11 @@ void * mt_worker(void * data)
 					continue;
 				}
 				if(pos > maxLen){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					pos = maxLen;
 				}
 				if(bBarcode){
 					int bc = pRecord->idx.bc - 1;
@@ -923,10 +930,10 @@ void * mt_worker_ap(void * data)
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
-	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	int iCutF = pStats->iCutF;
 	int iCutR = pStats->iCutR;
+	bool bCutTail = pStats->bCutTail;
 	char barcodeSeq[25];
 	char barcodeQua[25];
 	if(fpBarcode != NULL){
@@ -1001,17 +1008,15 @@ void * mt_worker_ap(void * data)
 					continue;
 				}
 				pRecord->tag = TAG_NORMAL;
-				flag = cMatrix::findAdaptersInARead(pRecord->seq.s, pRecord->seq.n, pRecord->idx);
+				flag = cMatrix::findAdaptersInARead(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n, pRecord->idx);
 				// TODO: 
 				if(flag >= 0){
 					pRecord->bExchange = (flag == 1);
 					if(flag == 0){
 						pRecord->idx.pos = pRecord->seq.n - iCutF;
-						pRecord->idx.pos2 = iCutR;
 					}
 					else{
 						pRecord->idx.pos = pRecord->seq.n - iCutR;
-						pRecord->idx.pos2 = iCutF;
 					}
 					if(pRecord->idx.pos < 0){
 						pRecord->idx.pos = 0;
@@ -1052,7 +1057,7 @@ void * mt_worker_ap(void * data)
 					continue;
 				}
 				// TAG_NORMAL
-				pos = pRecord->idx.pos - pRecord->idx.pos2;
+				pos = pRecord->idx.pos;
 				if(pos < minLen){
 					if(pos <= 0)
 						pStats->nEmpty++;
@@ -1061,36 +1066,29 @@ void * mt_worker_ap(void * data)
 					continue;
 				}
 				if(pos > maxLen){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					pos = maxLen;
 				}
-				if(pRecord->idx.bc < 0){
-					fpOut = pStats->fpUntrim.fp;
-				}
-				else{
-					if(bBarcode){
+				if(bBarcode){
+					if(pRecord->idx.bc < 0){
+						fpOut = pStats->fpUntrim.fp;
+					}
+					else{
 						fpOut = pStats->fpOuts[pRecord->idx.bc].fp;
 						pStats->incrementBarcode(pRecord->idx.bc);
 					}
-					else{
-						fpOut = pStats->fpOut;
-					}
-				}
-				if(bFivePrimeEnd){
-					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, pos, pRecord->qual.s + pRecord->qual.n - pRecord->idx.pos);
-					}
-					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos);
-					}
 				}
 				else{
-					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->idx.pos2, pos, pRecord->qual.s + pRecord->idx.pos2);
-					}
-					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->idx.pos2);
-					}
+					fpOut = pStats->fpOut;
+				}
+				if( pRecord->qual.n > 0 ){ // fastq
+					fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, pos, pRecord->qual.s + pRecord->qual.n - pRecord->idx.pos);
+				}
+				else{ // fasta
+					fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos);
 				}
 				if(pRecord->idx.bc < 0){ // assigned
 					pStats->nUntrimAvail++;
@@ -1124,6 +1122,7 @@ void * mt_worker2(void * data)
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
 	bool bBarcode = pStats->bBarcode;
+	bool bCutTail = pStats->bCutTail;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1272,8 +1271,12 @@ void * mt_worker2(void * data)
 					continue;
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					if(pos > maxLen) pos = maxLen;
+					if(pos2 > maxLen) pos2 = maxLen;
 				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
@@ -1338,6 +1341,7 @@ void * mt_worker2_sep(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
+	bool bCutTail = pStats->bCutTail;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
@@ -1475,8 +1479,12 @@ void * mt_worker2_sep(void * data)
 					continue;
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					if(pos > maxLen) pos = maxLen;
+					if(pos2 > maxLen) pos2 = maxLen;
 				}
 				if(bBarcode){
 					int bc = cMatrix::indices[pRecord->idx.bc][pRecord2->idx.bc];
@@ -1565,6 +1573,7 @@ void * mt_worker2_ap(void * data)
 	int iCutR = pStats->iCutR;
 	char barcodeSeq[25];
 	char barcodeQua[25];
+	bool bCutTail = pStats->bCutTail;
 	if(fpBarcode != NULL){
 		memset(barcodeSeq, 0, 25 * sizeof(char));
 		memset(barcodeQua, 0, 25 * sizeof(char));
@@ -1645,7 +1654,8 @@ void * mt_worker2_ap(void * data)
 					}
 				}
 				pRecord->tag = TAG_NORMAL;
-				flag = cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, pRecord2->seq.s, pRecord2->seq.n, pRecord->idx, pRecord2->idx);
+				flag = cMatrix::findAdaptersBidirectionally(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n,
+									pRecord2->seq.s, pRecord2->seq.n, (uchar *)pRecord2->qual.s, pRecord2->qual.n, pRecord->idx, pRecord2->idx);
 				if(flag >= 0){
 					pRecord->bExchange = (flag == 1);
 					if(flag == 0){
@@ -1712,8 +1722,12 @@ void * mt_worker2_ap(void * data)
 					continue;
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					if(pos > maxLen) pos = maxLen;
+					if(pos2 > maxLen) pos2 = maxLen;
 				}
 				if(pRecord->idx.bc < 0){
 					fpOut = pStats->fpUntrim.fp;
@@ -1824,6 +1838,7 @@ void * mt_worker2_mp(void * data)
 	int maxLen = pStats->getMaxLen();
 	int maxLen2 = (maxLen == INT_MAX) ? INT_MAX : (maxLen * 2);
 	bool bBarcode = pStats->bBarcode;
+	bool bCutTail = pStats->bCutTail;
 	bool bRedistribute = pStats->bRedistribute;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
@@ -2060,8 +2075,12 @@ void * mt_worker2_mp(void * data)
 					continue;
 				}
 				if(pos + pos2 > maxLen2){
-					pStats->nLong++;
-					continue;
+					if(!bCutTail){
+						pStats->nLong++;
+						continue;
+					}
+					if(pos > maxLen) pos = maxLen;
+					if(pos2 > maxLen) pos2 = maxLen;
 				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
