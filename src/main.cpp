@@ -28,6 +28,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+#include <cstring>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,8 @@
 #include "matrix.h"
 
 using namespace std;
+
+const char * TAG_NAME[TAG_CNT] = { "NORMAL", "BLURRY", "BADQUAL", "EMPTY", "SHORT", "CONTAMINANT", "UNDETERMINED", "LONG" };
 
 class cStats
 {
@@ -73,6 +76,10 @@ public:
 
 	CFILE *fpOuts;
 	CFILE *fpOuts2;
+	CFILE *fpMasked;
+	CFILE *fpMasked2;
+	CFILE *fpExcluded;
+	CFILE *fpExcluded2;
 	CFILE fpUntrim;
 	CFILE fpUntrim2;
 	CFILE fpBarcodes;
@@ -88,6 +95,10 @@ public:
 	cFQ * pfq2;
 	FILE * fpOut;
 	FILE * fpOut2;
+	FILE * fpMask;
+	FILE * fpMask2;
+	FILE * fpExcl;
+	FILE * fpExcl2;
 	FILE * fpBarcode;
 	int minAverageQual;
 	int minEndQual;
@@ -97,6 +108,7 @@ public:
 	bool bRedistribute;
 	bool bQuiet;
 	bool bMatepair;
+	bool bFillWithNs;
 	bool bCutTail;
 	int iCutF, iCutR;
 
@@ -117,6 +129,7 @@ public:
 		bStdout = false;
 		bFilterNs = false;
 		bFilterUndetermined = false;
+		bFillWithNs = false;
 		bRedistribute = false;
 		bCutTail = false;
 		minLen = allocLen = 0;
@@ -126,6 +139,8 @@ public:
 		pDecorate = "";
 		
 		fpOuts = fpOuts2 = NULL;
+		fpMasked = fpMasked2 = NULL;
+		fpExcluded = fpExcluded2 = NULL;
 		nFiles = nFiles2 = 0;
 		fpUntrim.fp = fpUntrim2.fp = NULL;
 		fpBarcodes.fp = NULL;
@@ -152,6 +167,26 @@ public:
 			free(fpOuts);
 			fpOuts = NULL;
 			nFiles = 0;
+		}
+		if (fpMasked != NULL){
+			gzclose(&fpMasked[0]);
+			free(fpMasked);
+			fpMasked = NULL;
+		}
+		if (fpMasked2 != NULL){
+			gzclose(&fpMasked2[0]);
+			free(fpMasked2);
+			fpMasked2 = NULL;
+		}
+		if (fpExcluded != NULL){
+			gzclose(&fpExcluded[0]);
+			free(fpExcluded);
+			fpExcluded = NULL;
+		}
+		if (fpExcluded2 != NULL) {
+			gzclose(&fpExcluded2[0]);
+			free(fpExcluded2);
+			fpExcluded2 = NULL;
 		}
 		if(pBarcode != NULL){
 			delete [] pBarcode;
@@ -197,6 +232,18 @@ public:
 			this->fpOut2 = fpOuts2[0].fp;
 			this->fpBarcode = fpBarcodes.fp;
 		}
+		if(fpMasked != NULL) {
+			this->fpMask = fpMasked[0].fp;
+		}
+		if(fpMasked2 != NULL) {
+			this->fpMask2 = fpMasked2[0].fp;
+		}
+		if(fpExcluded != NULL) {
+			this->fpExcl = fpExcluded[0].fp;
+		}
+		if(fpExcluded2 != NULL) {
+			this->fpExcl2 = fpExcluded2[0].fp;
+		}
 		this->minAverageQual = (pParameter->minAverageQual > 0) ? (pParameter->baseQual + pParameter->minAverageQual) : 0;
 		this->minEndQual = (pParameter->minEndQual > 0) ? (pParameter->baseQual + pParameter->minEndQual) : 0;
 		this->minLen = pParameter->minLen;
@@ -207,6 +254,7 @@ public:
 		this->bFilterUndetermined = pParameter->bFilterUndetermined;
 		this->bRedistribute = pParameter->bRedistribute;
 		this->bCutTail = pParameter->bCutTail;
+		this->bFillWithNs = pParameter->bFillWithNs;
 	}
 	bool openOutputFiles(cParameter * pParameter){
 		bPaired = (pParameter->nFileCnt >= 2);
@@ -232,6 +280,28 @@ public:
 			if(fpUntrim.fp == NULL){
 				fprintf(stderr, "Can not open %s for writing\n", pParameter->untrimmed.c_str());
 				return false;
+			}
+		}
+		else if(pParameter->bWriteMasked) {
+			fpMasked = (CFILE *)calloc(1, sizeof(CFILE));
+			if(fpMasked == NULL){
+				fprintf(stderr, "Can not allocate memory for file handles for writing\n");
+				return false;
+			}
+			fpMasked[0] = gzopen(pParameter->masked[0].c_str(), "w");
+			if(fpMasked[0].fp == NULL){
+				fprintf(stderr, "Can not open masked for writing\n");
+			}
+			if (bPaired) {
+				fpMasked2 = (CFILE *)calloc(1, sizeof(CFILE));
+				if(fpMasked2 == NULL){
+					fprintf(stderr, "Can not allocate memory for file handles for writing\n");
+					return false;
+				}
+				fpMasked2[0] = gzopen(pParameter->masked2[0].c_str(), "w");
+				if(fpMasked2[0].fp == NULL){
+					fprintf(stderr, "Can not open masked for writing\n");
+				}
 			}
 		}
 		if(bPaired){
@@ -266,6 +336,28 @@ public:
 				if(fpMapfile.fp == NULL){
 					fprintf(stderr, "Can not open %s for writing\n", pParameter->mapfile.c_str());
 					return false;
+				}
+			}
+		}
+		if(pParameter->bWriteExcluded) {
+			fpExcluded = (CFILE *)calloc(1, sizeof(CFILE));
+			if(fpExcluded == NULL){
+				fprintf(stderr, "Can not allocate memory for file handles for writing\n");
+				return false;
+			}
+			fpExcluded[0] = gzopen(pParameter->excluded[0].c_str(), "w");
+			if(fpExcluded[0].fp == NULL){
+				fprintf(stderr, "Can not open excluded for writing\n");
+			}
+			if (bPaired) {
+				fpExcluded2 = (CFILE *)calloc(1, sizeof(CFILE));
+				if(fpExcluded2 == NULL){
+					fprintf(stderr, "Can not allocate memory for file handles for writing\n");
+					return false;
+				}
+				fpExcluded2[0] = gzopen(pParameter->excluded2[0].c_str(), "w");
+				if(fpExcluded2[0].fp == NULL){
+					fprintf(stderr, "Can not open excluded for writing\n");
 				}
 			}
 		}
@@ -741,6 +833,8 @@ void * mt_worker(void * data)
 	int64 file_length = pStats->total_file_length;
 	cFQ * pfq = pStats->pfq;
 	FILE *fpOut = pStats->fpOut;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpExcl = pStats->fpExcl;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
@@ -748,7 +842,7 @@ void * mt_worker(void * data)
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	bool bCutTail = pStats->bCutTail;
-
+	
 	RECORD * pBuffer, *pRecord;
 	TASK task;
 	int size, rc, nItemCnt, nCnt;
@@ -842,30 +936,63 @@ void * mt_worker(void * data)
 			// write to file
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt < nItemCnt; nCnt++, pRecord++){
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				pos = pRecord->idx.pos;
 				if(pos < minLen){
-					if(pos <= 0)
+					if(pos <= 0) {
 						pStats->nEmpty++;
-					else
+						pRecord->tag = TAG_EMPTY;
+					}
+					else {
 						pStats->nShort++;
-					continue;
+						pRecord->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pos > maxLen){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+							pRecord->tag = TAG_LONG;
+						}
+						else {
+							continue;
+						}
 					}
 					pos = maxLen;
 				}
+				
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					continue;
+				}
+				
 				if(bBarcode){
 					int bc = pRecord->idx.bc - 1;
 					if(bc < 0){
@@ -892,6 +1019,13 @@ void * mt_worker(void * data)
 							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 						else // fasta
 							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+					}
+					
+					if(fpMask != NULL && (pos < pRecord->seq.n)) {
+						for (int i=pos; i < pRecord->seq.n; i++) {
+							pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+						}
+						fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 					}
 				}
 				if(bBarcode){
@@ -925,6 +1059,8 @@ void * mt_worker_ap(void * data)
 	int64 file_length = pStats->total_file_length;
 	cFQ * pfq = pStats->pfq;
 	FILE *fpOut = pStats->fpOut;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpExcl = pStats->fpExcl;
 	FILE *fpBarcode = pStats->fpBarcode;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
@@ -1048,30 +1184,63 @@ void * mt_worker_ap(void * data)
 			// write to file
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord++){
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				pos = pRecord->idx.pos;
 				if(pos < minLen){
-					if(pos <= 0)
+					if(pos <= 0) {
 						pStats->nEmpty++;
-					else
+						pRecord->tag = TAG_EMPTY;
+					}
+					else{
 						pStats->nShort++;
-					continue;
+						pRecord->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pos > maxLen){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+							pRecord->tag = TAG_LONG;
+						}
+						else {
+							continue;
+						}
 					}
 					pos = maxLen;
 				}
+				
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					continue;
+				}
+				
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
 						fpOut = pStats->fpUntrim.fp;
@@ -1085,10 +1254,41 @@ void * mt_worker_ap(void * data)
 					fpOut = pStats->fpOut;
 				}
 				if( pRecord->qual.n > 0 ){ // fastq
-					fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, pos, pRecord->qual.s + pRecord->qual.n - pRecord->idx.pos);
+					if (pStats->bFillWithNs) {
+						int s1len = pRecord->seq.n - pRecord->idx.pos;
+						int s2len = pRecord->idx.pos - pos;
+						string n1 = string(s1len, 'N');
+						string q1 = string(s1len, '!');
+						string n2 = string(s2len, 'N');
+						string q2 = string(s2len, '!');
+						
+						fprintf(fpOut, "@%s%s%.*s%s\n+\n%.*s%s\n", pRecord->id.s, 
+							n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, n2.c_str(), 
+							q1.c_str(), pos, pRecord->qual.s + pRecord->qual.n - pRecord->idx.pos, q2.c_str());
+					}
+					else {
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, pos, pRecord->qual.s + pRecord->qual.n - pRecord->idx.pos);
+					}
 				}
 				else{ // fasta
-					fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos);
+					if (pStats->bFillWithNs) {
+						int s1len = pRecord->seq.n - pRecord->idx.pos;
+						int s2len = pRecord->idx.pos - pos;
+						string n1 = string(s1len, 'N');
+						string n2 = string(s2len, 'N');
+						
+						fprintf(fpOut, ">%s%s%.*s%s\n", pRecord->id.s, 
+							n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos, n2.c_str());
+					}
+					else {
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pRecord->idx.pos);
+					}
+				}
+				if(fpMask != NULL && (pos < pRecord->seq.n)) {
+					for (int i=pos; i < pRecord->seq.n; i++) {
+						pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+					}
+					fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 				}
 				if(pRecord->idx.bc < 0){ // assigned
 					pStats->nUntrimAvail++;
@@ -1117,6 +1317,10 @@ void * mt_worker2(void * data)
 	cFQ * pfq2 = pStats->pfq2;
 	FILE *fpOut = pStats->fpOut;
 	FILE *fpOut2 = pStats->fpOut2;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpMask2 = pStats->fpMask2;
+	FILE *fpExcl = pStats->fpExcl;
+	FILE *fpExcl2 = pStats->fpExcl2;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
@@ -1246,13 +1450,25 @@ void * mt_worker2(void * data)
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
 				pRecord2 = pRecord + 1;
+				bool bWriteTrimmed = false;
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				if(bBarcode){
@@ -1262,22 +1478,48 @@ void * mt_worker2(void * data)
 				else{
 					pos = pRecord->idx.pos;
 					pos2 = pRecord2->idx.pos;
+					if(fpMask != NULL && (pos < pRecord->seq.n || pos2 < pRecord2->seq.n)) {
+						bWriteTrimmed = true;
+					}
 				}
 				if( (pos < minLen) || (pos2 < minLen) ){
-					if( (pos <= 0) || (pos2 <= 0) )
+					if( (pos <= 0) || (pos2 <= 0) ) {
 						pStats->nEmpty++;
-					else
+						pRecord->tag = pRecord2->tag = TAG_EMPTY;
+					}
+					else {
 						pStats->nShort++;
-					continue;
+						pRecord->tag = pRecord2->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						pRecord->tag = pRecord2->tag = TAG_LONG;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+						}
+						else {
+							continue;
+						}
 					}
 					if(pos > maxLen) pos = maxLen;
 					if(pos2 > maxLen) pos2 = maxLen;
 				}
+				
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpExcl2, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord2->id.s, "\n"), tag.c_str(), pRecord2->seq.s, pRecord2->qual.s);
+					continue;
+				}
+				
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
 						fpOut = pStats->fpUntrim.fp;
@@ -1291,13 +1533,47 @@ void * mt_worker2(void * data)
 				}
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
+				if(bWriteTrimmed) {
+					for (int i=pos; i < pRecord->seq.n; i++) {
+						pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+					}
+					for (int i=pos2; i < pRecord2->seq.n; i++) {
+						pRecord2->seq.s[i] = tolower(pRecord2->seq.s[i]);
+					}
+					fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpMask2, "@%s%s\n+\n%s\n", pRecord2->id.s, pRecord2->seq.s, pRecord2->qual.s);
+				}
 				if(qLen > 0){ // fastq
-					fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
-					fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+					if (pStats->bFillWithNs) {
+						int s1len = pRecord->seq.n - pos;
+						int s2len = pRecord2->seq.n - pos2;
+						
+						string n1 = string(s1len, 'N');
+						string n2 = string(s2len, 'N');
+						string q1 = string(s1len, '!');
+						string q2 = string(s2len, '!');
+						
+						fprintf(fpOut, "@%s%.*s%s\n+\n%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str(), pos, pRecord->qual.s, q1.c_str());
+						fprintf(fpOut2, "@%s%.*s%s\n+\n%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str(), pos2, pRecord2->qual.s, q2.c_str());
+					}
+					else {
+						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+					}
 				}
 				else{ // fasta
-					fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
-					fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+					if (pStats->bFillWithNs) {
+						int s1len = pRecord->seq.n - pos;
+						int s2len = pRecord2->seq.n - pos2;
+						string n1 = string(s1len, 'N');
+						string n2 = string(s2len, 'N');
+						fprintf(fpOut, ">%s%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str());
+						fprintf(fpOut2, ">%s%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str());
+					}
+					else {
+						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+					}
 				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){ // assigned
@@ -1335,6 +1611,10 @@ void * mt_worker2_sep(void * data)
 	cFQ * pfq2 = pStats->pfq2;
 	FILE *fpOut = pStats->fpOut;
 	FILE *fpOut2 = pStats->fpOut2;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpMask2 = pStats->fpMask2;
+	FILE *fpExcl = pStats->fpExcl;
+	FILE *fpExcl2 = pStats->fpExcl2;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
@@ -1454,13 +1734,25 @@ void * mt_worker2_sep(void * data)
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
 				pRecord2 = pRecord + 1;
+				bool bWriteTrimmed = false;
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				if(bBarcode){
@@ -1470,21 +1762,45 @@ void * mt_worker2_sep(void * data)
 				else{
 					pos = pRecord->idx.pos;
 					pos2 = pRecord2->idx.pos;
+					if(fpMask != NULL && (pos < pRecord->seq.n || pos2 < pRecord2->seq.n)) {
+						bWriteTrimmed = true;
+					}
 				}
 				if( (pos < minLen) || (pos2 < minLen) ){
-					if( (pos <= 0) || (pos2 <= 0) )
+					if( (pos <= 0) || (pos2 <= 0) ) {
 						pStats->nEmpty++;
-					else
+						pRecord->tag = pRecord2->tag = TAG_EMPTY;
+					}
+					else {
 						pStats->nShort++;
-					continue;
+						pRecord->tag = pRecord2->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						pRecord->tag = pRecord2->tag = TAG_LONG;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+						}
+						else {
+							continue;
+						}
 					}
 					if(pos > maxLen) pos = maxLen;
 					if(pos2 > maxLen) pos2 = maxLen;
+				}
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpExcl2, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord2->id.s, "\n"), tag.c_str(), pRecord2->seq.s, pRecord2->qual.s);
+					continue;
 				}
 				if(bBarcode){
 					int bc = cMatrix::indices[pRecord->idx.bc][pRecord2->idx.bc];
@@ -1498,32 +1814,98 @@ void * mt_worker2_sep(void * data)
 						pStats->incrementBarcode(bc);
 					}
 				}
+				if(bWriteTrimmed) {
+					for (int i=pos; i < pRecord->seq.n; i++) {
+						pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+					}
+					for (int i=pos2; i < pRecord2->seq.n; i++) {
+						pRecord2->seq.s[i] = tolower(pRecord2->seq.s[i]);
+					}
+					fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpMask2, "@%s%s\n+\n%s\n", pRecord2->id.s, pRecord2->seq.s, pRecord2->qual.s);
+				}
 				if(bFivePrimeEnd){
 					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						if (pStats->bFillWithNs) {
+							string n1 = string(pos, 'N');
+							string q1 = string(pos, '!');
+							fprintf(fpOut, "@%s%s%.*s\n+\n%s%.*s\n", pRecord->id.s, n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pos, q1.c_str(), pos, pRecord->qual.s + pRecord->qual.n - pos);
+						}
+						else {
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+						if (pStats->bFillWithNs) {
+							string n1 = string(pos, 'N');
+							fprintf(fpOut, ">%s%s%.*s\n", pRecord->id.s, n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pos);
+						}
+						else {
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+						}
 					}
 					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						if (pStats->bFillWithNs) {
+							string n2 = string(pos2, 'N');
+							string q2 = string(pos2, '!');
+							fprintf(fpOut, "@%s%s%.*s\n+\n%s%.*s\n", pRecord2->id.s, n2.c_str(), pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, q2.c_str(), pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						}
+						else {
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						if (pStats->bFillWithNs) {
+							string n2 = string(pos2, 'N');
+							fprintf(fpOut, ">%s%s%.*s\n", pRecord2->id.s, n2.c_str(), pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						}
+						else {
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						}
 					}
 				}
 				else{
 					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						if (pStats->bFillWithNs) {
+							int s1len = pRecord->seq.n - pos;
+							string n1 = string(s1len, 'N');
+							string q1 = string(s1len, '!');
+							fprintf(fpOut, "@%s%.*s%s\n+\n%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str(), pos, pRecord->qual.s, q1.c_str());
+						}
+						else {
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+						if (pStats->bFillWithNs) {
+							int s1len = pRecord->seq.n - pos;
+							string n1 = string(s1len, 'N');
+							fprintf(fpOut, ">%s%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str());
+						}
+						else {
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+						}
 					}
 					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+						if (pStats->bFillWithNs) {
+							int s2len = pRecord2->seq.n - pos2;
+							string n2 = string(s2len, 'N');
+							string q2 = string(s2len, '!');
+							fprintf(fpOut2, "@%s%.*s%s\n+\n%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str(), pos2, pRecord2->qual.s, q2.c_str());
+						}
+						else {
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+						if (pStats->bFillWithNs) {
+							int s2len = pRecord2->seq.n - pos2;
+							string n2 = string(s2len, 'N');
+							fprintf(fpOut2, ">%s%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str());
+						}
+						else {
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+						}
 					}
 				}
 				if(bBarcode){
@@ -1562,6 +1944,10 @@ void * mt_worker2_ap(void * data)
 	cFQ * pfq2 = pStats->pfq2;
 	FILE *fpOut = pStats->fpOut;
 	FILE *fpOut2 = pStats->fpOut2;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpMask2 = pStats->fpMask2;
+	FILE *fpExcl = pStats->fpExcl;
+	FILE *fpExcl2 = pStats->fpExcl2;
 	FILE *fpBarcode = pStats->fpBarcode;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
@@ -1703,32 +2089,70 @@ void * mt_worker2_ap(void * data)
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
 				pRecord2 = pRecord + 1;
+				bool bWriteTrimmed = false;
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				pos = pRecord->idx.pos;
 				pos2 = pRecord2->idx.pos;
+				if(fpMask != NULL && (pos < pRecord->seq.n || pos2 < pRecord2->seq.n)) {
+					bWriteTrimmed = true;
+				}
 				if( (pos < minLen) || (pos2 < minLen) ){
-					if( (pos <= 0) || (pos2 <= 0) )
+					if( (pos <= 0) || (pos2 <= 0) ) {
 						pStats->nEmpty++;
-					else
+						pRecord->tag = pRecord2->tag = TAG_EMPTY;
+					}
+					else {
 						pStats->nShort++;
-					continue;
+						pRecord->tag = pRecord2->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if( (pos > maxLen) || (pos2 > maxLen) ){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						pRecord->tag = pRecord2->tag = TAG_LONG;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+						}
+						else {
+							continue;
+						}
 					}
 					if(pos > maxLen) pos = maxLen;
 					if(pos2 > maxLen) pos2 = maxLen;
 				}
+				
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpExcl2, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord2->id.s, "\n"), tag.c_str(), pRecord2->seq.s, pRecord2->qual.s);
+					continue;
+				}
+				
 				if(pRecord->idx.bc < 0){
 					fpOut = pStats->fpUntrim.fp;
 					fpOut2 = pStats->fpUntrim2.fp;
@@ -1757,32 +2181,98 @@ void * mt_worker2_ap(void * data)
 						}
 					}
 				}
+				if(bWriteTrimmed) {
+					for (int i=pos; i < pRecord->seq.n; i++) {
+						pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+					}
+					for (int i=pos2; i < pRecord2->seq.n; i++) {
+						pRecord2->seq.s[i] = tolower(pRecord2->seq.s[i]);
+					}
+					fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpMask2, "@%s%s\n+\n%s\n", pRecord2->id.s, pRecord2->seq.s, pRecord2->qual.s);
+				}
 				if(bFivePrimeEnd){
 					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						if (pStats->bFillWithNs) {
+							string n1 = string(pos, 'N');
+							string q1 = string(pos, '!');
+							fprintf(fpOut, "@%s%s%.*s\n+\n%s%.*s\n", pRecord->id.s, n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pos, q1.c_str(), pos, pRecord->qual.s + pRecord->qual.n - pos);
+						}
+						else {
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+						if (pStats->bFillWithNs) {
+							string n1 = string(pos, 'N');
+							fprintf(fpOut, ">%s%s%.*s\n", pRecord->id.s, n1.c_str(), pos, pRecord->seq.s + pRecord->seq.n - pos);
+						}
+						else {
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
+						}
 					}
 					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						if (pStats->bFillWithNs) {
+							string n2 = string(pos2, 'N');
+							string q2 = string(pos2, '!');
+							fprintf(fpOut, "@%s%s%.*s\n+\n%s%.*s\n", pRecord2->id.s, n2.c_str(), pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, q2.c_str(), pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						}
+						else {
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						if (pStats->bFillWithNs) {
+							string n2 = string(pos2, 'N');
+							fprintf(fpOut, ">%s%s%.*s\n", pRecord2->id.s, n2.c_str(), pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						}
+						else {
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
+						}
 					}
 				}
 				else{
 					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						if (pStats->bFillWithNs) {
+							int s1len = pRecord->seq.n - pos;
+							string n1 = string(s1len, 'N');
+							string q1 = string(s1len, '!');
+							fprintf(fpOut, "@%s%.*s%s\n+\n%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str(), pos, pRecord->qual.s, q1.c_str());
+						}
+						else {
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+						if (pStats->bFillWithNs) {
+							int s1len = pRecord->seq.n - pos;
+							string n1 = string(s1len, 'N');
+							fprintf(fpOut, ">%s%.*s%s\n", pRecord->id.s, pos, pRecord->seq.s, n1.c_str());
+						}
+						else {
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
+						}
 					}
 					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+						if (pStats->bFillWithNs) {
+							int s2len = pRecord2->seq.n - pos2;
+							string n2 = string(s2len, 'N');
+							string q2 = string(s2len, '!');
+							fprintf(fpOut2, "@%s%.*s%s\n+\n%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str(), pos2, pRecord2->qual.s, q2.c_str());
+						}
+						else {
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
+						}
 					}
 					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+						if (pStats->bFillWithNs) {
+							int s2len = pRecord2->seq.n - pos2;
+							string n2 = string(s2len, 'N');
+							fprintf(fpOut2, ">%s%.*s%s\n", pRecord2->id.s, pos2, pRecord2->seq.s, n2.c_str());
+						}
+						else {
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+						}
 					}
 				}
 				if( (fpBarcode != NULL) && (pRecord->idx.bc >= 0) ){
@@ -1832,6 +2322,10 @@ void * mt_worker2_mp(void * data)
 	cFQ * pfq2 = pStats->pfq2;
 	FILE *fpOut = pStats->fpOut;
 	FILE *fpOut2 = pStats->fpOut2;
+	FILE *fpMask = pStats->fpMask;
+	FILE *fpMask2 = pStats->fpMask2;
+	FILE *fpExcl = pStats->fpExcl;
+	FILE *fpExcl2 = pStats->fpExcl2;
 	int minAverageQual = pStats->minAverageQual;
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
@@ -2047,41 +2541,88 @@ void * mt_worker2_mp(void * data)
 			pRecord->nCnt = 0; // reset
 			for(nCnt=0; nCnt<nItemCnt; nCnt++, pRecord+=2){
 				pRecord2 = pRecord + 1;
+				bool bWriteTrimmed = false;
+				bool bWriteExcluded = false;
 				if(pRecord->tag == TAG_BLURRY){
 					pStats->nBlurry++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_BADQUAL){
 					pStats->nBad++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_CONTAMINANT){
 					pStats->nContaminant++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pRecord->tag == TAG_UNDETERMINED){
 					pStats->nUndetermined++;
-					continue;
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				// TAG_NORMAL
 				pos = pRecord->idx.pos;
 				pos2 = pRecord2->idx.pos;
-				if( (pos <= 0) || (pos2 <= 0) ){
-					pStats->nEmpty++;
-					continue;
+				if(fpMask != NULL && (pos < pRecord->seq.n || pos2 < pRecord2->seq.n)) {
+					bWriteTrimmed = true;
 				}
 				if( (pos < minLen) || (pos2 < minLen) ){
-					pStats->nShort++;
-					continue;
+					if( (pos <= 0) || (pos2 <= 0) ) {
+						pStats->nEmpty++;
+						pRecord->tag = pRecord2->tag = TAG_EMPTY;
+					}
+					else {
+						pStats->nShort++;
+						pRecord->tag = pRecord2->tag = TAG_SHORT;
+					}
+					if(fpExcl != NULL) {
+						bWriteExcluded = true;
+					}
+					else {
+						continue;
+					}
 				}
 				if(pos + pos2 > maxLen2){
 					if(!bCutTail){
 						pStats->nLong++;
-						continue;
+						pRecord->tag = pRecord2->tag = TAG_LONG;
+						if(fpExcl != NULL) {
+							bWriteExcluded = true;
+						}
+						else {
+							continue;
+						}
 					}
 					if(pos > maxLen) pos = maxLen;
 					if(pos2 > maxLen) pos2 = maxLen;
 				}
+				
+				if(bWriteExcluded) {
+					string tag = TAG_NAME[pRecord->tag];
+					fprintf(fpExcl, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), tag.c_str(), pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpExcl2, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord2->id.s, "\n"), tag.c_str(), pRecord2->seq.s, pRecord2->qual.s);
+					continue;
+				}
+				
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){
 						fpOut = pStats->fpUntrim.fp;
@@ -2095,6 +2636,16 @@ void * mt_worker2_mp(void * data)
 				}
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
+				if(bWriteTrimmed) {
+					for (int i=pos; i < pRecord->seq.n; i++) {
+						pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
+					}
+					for (int i=pos2; i < pRecord2->seq.n; i++) {
+						pRecord2->seq.s[i] = tolower(pRecord2->seq.s[i]);
+					}
+					fprintf(fpMask, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
+					fprintf(fpMask2, "@%s%s\n+\n%s\n", pRecord2->id.s, pRecord2->seq.s, pRecord2->qual.s);
+				}
 				if(qLen > 0){ // fastq
 					if(pos <= rLen){
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
@@ -2124,7 +2675,7 @@ void * mt_worker2_mp(void * data)
 					else{
 						fprintf(fpOut2, ">%s%.*s%.*s\n", pRecord2->id.s, rLen, pRecord2->seq.s, pos2 - rLen, pRecord->seq.s + pos);
 					}
-				} 
+				}
 				if(bBarcode){
 					if(pRecord->idx.bc < 0){ // assigned
 						pStats->nUntrimAvail++;

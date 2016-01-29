@@ -160,6 +160,8 @@ cParameter::cParameter()
 
 	iCutF = iCutR = 0;
 	bCutTail = false;
+	
+	bFillWithNs = false;
 }
 
 char * cParameter::occOfLastDot	(char * str)
@@ -360,6 +362,7 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -L, --max <int> The maximum read length allowed after trimming; (no limit)\n");
 	fprintf(fp, "          -n  Whether to filter out highly degenerative (many Ns) reads; (no)\n");
 	fprintf(fp, "          -u  Whether to filter out undetermined mate-pair reads; (no)\n");
+	fprintf(fp, "          -N, --fillNs Whether to replace trimmed bases with Ns (has no effect with 'b' or '-m mp'); (no)\n");
 	fprintf(fp, " Input/Output:\n");
 	fprintf(fp, "          -f, --format <str>   Format of FASTQ quality value: sanger|solexa|auto; (auto)\n");
 	fprintf(fp, "          -o, --output <str>   Base name of output file; ('<reads>.trimmed')\n");
@@ -367,6 +370,8 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -1, --stdout         Redirect output to STDOUT, suppressing -b, -o, and -z options (no)\n");
 	fprintf(fp, "          --qiime              Prepare the \"barcodes.fastq\" and \"mapping_file.txt\" for processing with QIIME; (default: no)\n");
 	fprintf(fp, "          --quiet              No progress update (not quiet)\n");
+	fprintf(fp, "          -A, --masked-output  Write output file(s) for trimmed reads (trimmed bases converted to lower case) (no)\n");
+	fprintf(fp, "          -X, --excluded-output Write output file(s) for excluded reads (no)\n");
 	fprintf(fp, " Miscellaneous:\n");
 	fprintf(fp, "          -i, --intelligent     For mate-pair mode, whether to redistribute reads based on junction information; (no)\n");
 	fprintf(fp, "          -t, --threads <int>   Number of concurrent threads [1, 32]; (1)\n");
@@ -540,7 +545,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:e#o:z1Q:k:t:i*vh";
+	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:e#o:z1Q:k:t:i*vhAXN";
 	OPTION_ITEM longOptions[] = {
 		{"barcode", 'b'},
 		{"mode", 'm'},
@@ -561,7 +566,10 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"intelligent", 'i'},
 		{"quiet", '*'},
 		{"version", 'v'},
-		{"help", 'h'}
+		{"help", 'h'},
+		{"masked-output", 'M'},
+		{"excluded-output", 'E'},
+		{"fillNs", 'N'}
 	};
 	char basename[MAX_PATH+1+100];
 	char trimmed[MAX_PATH+1+100];
@@ -795,6 +803,15 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			break;
 		case 'i':
 			bRedistribute = true;
+			break;
+		case 'A':
+			bWriteMasked = true;
+			break;
+		case 'X':
+			bWriteExcluded = true;
+			break;
+		case 'N':
+			bFillWithNs = true;
 			break;
 		default:
 			iRet = -1;
@@ -1193,6 +1210,40 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 					untrimmed += string(".gz");
 				}
 			}
+		}
+		
+		if (bWriteMasked) {
+			string maskedFileName, maskedFileName2;
+			maskedFileName.assign(string(trimmed) + string("-masked-pair1.fastq"));
+			maskedFileName2.assign(string(trimmed) + string("-masked-pair2.fastq"));	
+			if(outputFormat == COMPRESS_GZ){
+				maskedFileName += string(".gz");
+				maskedFileName2 += string(".gz");
+			}
+			masked.push_back(maskedFileName);
+			masked2.push_back(maskedFileName2);
+		}
+	}
+
+	if(bWriteExcluded) {
+		if(nFileCnt >= 2){
+			string excludedFileName, excludedFileName2;
+			excludedFileName.assign(string(basename) + string("-excluded-pair1.fastq"));
+			excludedFileName2.assign(string(basename) + string("-excluded-pair2.fastq"));	 
+			if(outputFormat == COMPRESS_GZ){
+				excludedFileName += string(".gz");
+				excludedFileName2 += string(".gz");
+			}
+			excluded.push_back(excludedFileName);
+			excluded2.push_back(excludedFileName2);
+		}
+		else {
+			string excludedFileName;
+			excludedFileName.assign(string(basename) + string("-excluded.fastq"));	  
+			if(outputFormat == COMPRESS_GZ){
+				excludedFileName += string(".gz");
+			}
+			excluded.push_back(excludedFileName);
 		}
 	}
 
