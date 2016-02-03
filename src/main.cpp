@@ -45,7 +45,7 @@
 
 using namespace std;
 
-const char * TAG_NAME[TAG_CNT] = { "NORMAL", "BLURRY", "BADQUAL", "EMPTY", "SHORT", "CONTAMINANT", "UNDETERMINED", "LONG" };
+const char * TAG_NAME[8] = { "NORMAL", "BLURRY", "BADQUAL", "EMPTY", "SHORT", "CONTAMINANT", "UNDETERMINED", "LONG" };
 
 class cStats
 {
