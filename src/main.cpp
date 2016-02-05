@@ -1567,7 +1567,6 @@ void * mt_worker2_ap(void * data)
 	int minEndQual = pStats->minEndQual;
 	int minLen = pStats->getMinLen();
 	int maxLen = pStats->getMaxLen();
-	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	int iCutF = pStats->iCutF;
 	int iCutR = pStats->iCutR;
@@ -1732,6 +1731,18 @@ void * mt_worker2_ap(void * data)
 				if(pRecord->idx.bc < 0){
 					fpOut = pStats->fpUntrim.fp;
 					fpOut2 = pStats->fpUntrim2.fp;
+					if( pRecord->qual.n > 0 ){ // fastq
+						fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
+					}
+					else{ // fasta
+						fprintf(fpOut, ">%s%s\n", pRecord->id.s, pRecord->seq.s);
+					}
+					if( pRecord2->qual.n > 0){ // fastq
+						fprintf(fpOut2, "@%s%s\n+\n%s\n", pRecord2->id.s, pRecord2->seq.s, pRecord2->qual.s);
+					}
+					else{
+						fprintf(fpOut2, ">%s%s\n", pRecord2->id.s, pRecord2->seq.s);
+					}
 				}
 				else{
 					if(pRecord->bExchange){
@@ -1744,6 +1755,18 @@ void * mt_worker2_ap(void * data)
 							fpOut2 = pStats->fpOut;
 							fpOut = pStats->fpOut2;
 						}
+						if( pRecord->qual.n > 0 ){ // fastq
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + iCutR, pos, pRecord->qual.s + iCutR);
+						}
+						else{ // fasta
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + iCutR);
+						}
+						if( pRecord2->qual.n > 0){ // fastq
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + iCutF, pos2, pRecord2->qual.s + iCutF);
+						}
+						else{
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + iCutF);
+						}
 					}
 					else{
 						if(bBarcode){
@@ -1755,34 +1778,18 @@ void * mt_worker2_ap(void * data)
 							fpOut = pStats->fpOut;
 							fpOut2 = pStats->fpOut2;
 						}
-					}
-				}
-				if(bFivePrimeEnd){
-					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos, pos, pRecord->qual.s + pRecord->qual.n - pos);
-					}
-					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + pRecord->seq.n - pos);
-					}
-					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2, pos2, pRecord2->qual.s + pRecord2->qual.n - pos2);
-					}
-					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + pRecord2->seq.n - pos2);
-					}
-				}
-				else{
-					if( pRecord->qual.n > 0 ){ // fastq
-						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
-					}
-					else{ // fasta
-						fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s);
-					}
-					if( pRecord2->qual.n > 0 ){ // fastq
-						fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s, pos2, pRecord2->qual.s);
-					}
-					else{ // fasta
-						fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s);
+						if( pRecord->qual.n > 0 ){ // fastq
+							fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s + iCutF, pos, pRecord->qual.s + iCutF);
+						}
+						else{ // fasta
+							fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, pos, pRecord->seq.s + iCutF);
+						}
+						if( pRecord2->qual.n > 0){ // fastq
+							fprintf(fpOut2, "@%s%.*s\n+\n%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + iCutR, pos2, pRecord2->qual.s + iCutR);
+						}
+						else{
+							fprintf(fpOut2, ">%s%.*s\n", pRecord2->id.s, pos2, pRecord2->seq.s + iCutR);
+						}
 					}
 				}
 				if( (fpBarcode != NULL) && (pRecord->idx.bc >= 0) ){

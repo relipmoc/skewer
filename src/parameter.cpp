@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.1.127";
-const char * DATE = "August 5, 2015";
+const char * VERSION = "0.1.128";
+const char * DATE = "Feb 2, 2016";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -964,29 +964,11 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			}
 		}
 	}
-	if(bSetM){
-		iRet = ReadMatrix(m_str.c_str());
-		if(iRet < 0){
-			if(iRet == -1){
-				sprintf(errMsg, "Can not open matrix file \"%s\" for reading", m_str.c_str());
-			}
-			else{
-				sprintf(errMsg, "File format of matrix file \"%s\" is invalid", m_str.c_str());
-			}
+	if(nFileCnt < 2){
+		if(bSetM){
+			sprintf(errMsg, "-M should not be specified for single-end reads\n");
 			return -2;
 		}
-		if( rowNames.size() != adapters.size() + 1 ){
-			sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
-			return -2;
-		}
-		uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
-		if( colNames.size() != usize + 1 ){
-			sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
-					 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
-			return -2;
-		}
-	}
-	else{
 		char buffer[MAX_PATH];
 		rowNames.push_back("%");
 		if(int(adapters.size()) > 26){
@@ -1007,15 +989,72 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			sprintf(buffer, "%02d", (j+1));
 			colNames.push_back(buffer);
 		}
-		vector<bool> bvec;
+		vector<bool> bvec, bvec2;
 		bvec.push_back(false);
+		bvec2.push_back(true);
 		for(j=0; j<int(colNames.size())-1; j++){
 			bvec.push_back(true);
+			bvec2.push_back(false);
 		}
-		bool bStrict = bBarcode || (trimMode & TRIM_AP);
-		bMatrix.push_back(bStrict ? vector<bool>(colNames.size(), false) : bvec);
+		bMatrix.push_back(bvec);
 		for(j=0; j<int(rowNames.size()-1); j++){
-			bMatrix.push_back(bStrict ? bvec : vector<bool>(colNames.size(), true));
+			bMatrix.push_back(bvec2);
+		}
+	}
+	else{
+		if(bSetM){
+			iRet = ReadMatrix(m_str.c_str());
+			if(iRet < 0){
+				if(iRet == -1){
+					sprintf(errMsg, "Can not open matrix file \"%s\" for reading", m_str.c_str());
+				}
+				else{
+					sprintf(errMsg, "File format of matrix file \"%s\" is invalid", m_str.c_str());
+				}
+				return -2;
+			}
+			if( rowNames.size() != adapters.size() + 1 ){
+				sprintf(errMsg, "Number of rows in \"%s\" differs from the number of adapter sequences specified by -x", m_str.c_str());
+				return -2;
+			}
+			uint usize = (bShareAdapter ? adapters.size() : adapters2.size());
+			if( colNames.size() != usize + 1 ){
+				sprintf(errMsg, "Number of columns in \"%s\" differs from the number of adapter sequences specified by -%c",
+						 m_str.c_str(), (bShareAdapter ? 'x' : 'y'));
+				return -2;
+			}
+		}
+		else{
+			char buffer[MAX_PATH];
+			rowNames.push_back("%");
+			if(int(adapters.size()) > 26){
+				for(i=0; i<int(adapters.size()); i++){
+					sprintf(buffer, "%02dx", (i+1));
+					rowNames.push_back(buffer);
+				}
+			}
+			else{
+				for(i=0; i<int(adapters.size()); i++){
+					sprintf(buffer, "%c", char('A' + i));
+					rowNames.push_back(buffer);
+				}
+			}
+			vector<string> *pAdapter = (bShareAdapter ? &adapters : &adapters2);
+			colNames.push_back("%");
+			for(j=0; j<int(pAdapter->size()); j++){
+				sprintf(buffer, "%02d", (j+1));
+				colNames.push_back(buffer);
+			}
+			vector<bool> bvec;
+			bvec.push_back(false);
+			for(j=0; j<int(colNames.size())-1; j++){
+				bvec.push_back(true);
+			}
+			bool bStrict = bBarcode || (trimMode & TRIM_AP);
+			bMatrix.push_back(bStrict ? vector<bool>(colNames.size(), false) : bvec);
+			for(j=0; j<int(rowNames.size()-1); j++){
+				bMatrix.push_back(bStrict ? bvec : vector<bool>(colNames.size(), true));
+			}
 		}
 	}
 	if(!bSetK){

@@ -859,6 +859,7 @@ int cMatrix::findAdaptersInARead(char * read, size_t rLen, uchar * qual, size_t 
 		if(pAdapter->align(read, nLen, qual, qLen, result, i)){
 			if(result.begin()->score > maxScore){
 				index = result.begin()->idx;
+				index.bc = indices[index.bc][0];
 				maxScore = result.begin()->score;
 			}
 		}
@@ -870,6 +871,7 @@ int cMatrix::findAdaptersInARead(char * read, size_t rLen, uchar * qual, size_t 
 			if(pAdapter->align(read, nLen, qual, qLen, result, i)){
 				if(result.begin()->score > maxScore){
 					index = result.begin()->idx;
+					index.bc = indices[0][index.bc];
 					maxScore = result.begin()->score;
 					flag = 1;
 				}
