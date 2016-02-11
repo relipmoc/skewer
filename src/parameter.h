@@ -75,8 +75,22 @@ public:
 	vector<string> colNames;
 	vector<string> juncAdapters;
 	char * input[2];
+	// These are the output fastq files for the
+	// trimmed reads that pass filters
 	vector<string> output;
 	vector<string> output2;
+	// These are the output fastq files for only
+	// the reads that passed filters AND were trimmed.
+	// The full reads appear in the file with the
+	// trimmed bases in lower case rather than removed.
+	vector<string> masked;
+	vector<string> masked2;
+	bool bWriteMasked;
+	// These files contain the reads that were excluded
+	// from the output because they failed filters.
+	vector<string> excluded;
+	vector<string> excluded2;
+	bool bWriteExcluded;
 	vector<string> barcodeNames;
 	string barcodes;
 	string mapfile;
@@ -105,6 +119,7 @@ public:
 	int minK;
 	int iCutF, iCutR;
 	bool bCutTail;
+	bool bFillWithNs;
 
 private:
 	char * occOfLastDot(char * str);

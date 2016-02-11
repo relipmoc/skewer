@@ -67,7 +67,8 @@ typedef enum{
 	TAG_EMPTY = 3,
 	TAG_SHORT = 4,
 	TAG_CONTAMINANT = 5,
-	TAG_UNDETERMINED = 6
+	TAG_UNDETERMINED = 6,
+	TAG_LONG = 7
 }REC_TAG;
 
 typedef struct tag_REC{
