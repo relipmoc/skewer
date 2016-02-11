@@ -1,11 +1,12 @@
 CXX=g++
 DEBUG?=0
 CXXFLAGS?=-c
-LDFLAGS=-pthread -lrt
+LDFLAGS=-pthread
+LDLIBS=-lrt
 ifneq ($(OS), Windows_NT)
 	UNAME_S := $(shell uname -s)
 	ifeq ($(UNAME_S), Darwin)
-		LDFLAGS=-lpthread
+		LDLIBS=
 	endif
 endif
 SRC=src
@@ -27,7 +28,7 @@ debug:
 	$(MAKE) $(MAKEFILE) DEBUG=1
 
 $(EXECUTABLE):$(OBJECTS)
-	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@
+	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@ $(LDLIBS)
 
 .cpp.o:
 	$(CXX) $(CXXFLAGS) $< -o $@
