@@ -163,6 +163,7 @@ cParameter::cParameter()
 	bClipTail = false;
 	iClip1 = iClip2 = 0;
 	
+	bWriteMasked = false;
 	bWriteExcluded = false;
 	bFillWithNs = false;
 }
