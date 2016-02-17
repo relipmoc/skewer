@@ -160,6 +160,8 @@ cParameter::cParameter()
 
 	iCutF = iCutR = 0;
 	bCutTail = false;
+	bClipTail = false;
+	iClip1 = iClip2 = 0;
 	
 	bWriteExcluded = false;
 	bFillWithNs = false;
@@ -356,6 +358,9 @@ void cParameter::PrintUsage(char * program, FILE * fp)
 	fprintf(fp, "          -c, --cut <int>,<int> Hard clip off the 5' leading bases as the barcodes in amplicon mode; (no)\n");
 	fprintf(fp, "          -e, --cut3            Hard clip off the 3' tailing bases if the read length is greater than\n");
 	fprintf(fp, "                                the maximum read length specified by -L; (no)\n");
+	fprintf(fp, "          -p, --clip3 <int>[,<int>] Hard clip off specified numbers of bases from 3' end of first read (and\n");
+	fprintf(fp, "                                    second read, if paired-end) before performing any other clipping. Ignored\n");
+	fprintf(fp, "                                    in amplicon and mate-pair modes; (no)\n");
 	fprintf(fp, " Filtering:\n");
 	fprintf(fp, "          -q, --end-quality  <int> Trim 3' end until specified or higher quality reached; (0)\n");
 	fprintf(fp, "          -Q, --mean-quality <int> The lowest mean quality value allowed before trimming; (0)\n");
@@ -546,7 +551,7 @@ void cParameter::printOpt(FILE * fp, bool bLeadingRtn)
 
 int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 {
-	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:e#o:z1Q:k:t:i*vhAXN";
+	const char *options = "x:y:j:m:r:d:q:l:L:M:nuf:bc:e#o:z1Q:k:t:i*vhAXNp:";
 	OPTION_ITEM longOptions[] = {
 		{"barcode", 'b'},
 		{"mode", 'm'},
@@ -562,6 +567,7 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 		{"compress", 'z'},
 		{"cut", 'c'}, // hard clip for clipping 6bp or 8bp tags from amplicon reads
 					  // example: --cut 0,6 for cutting leading 6 bp from read matches reverse primer
+		{"clip", 'p'},
 		{"cut3", 'e'},
 		{"qiime", '#'},
 		{"intelligent", 'i'},
@@ -775,6 +781,21 @@ int cParameter::GetOpt(int argc, char *argv[], char * errMsg)
 			break;
 		case 'e':
 			bCutTail = true;
+			break;
+		case 'p':
+			{
+				char * line = strdup(argv[i]);
+				char * num1 = strtok(line, ",");
+				char * num2 = strtok(NULL, ",");
+				iClip1 = atoi(num1);
+				if (num2 == NULL) {
+					iClip2 = 0;
+				}
+				else {
+					iClip2 = atoi(num2);
+				}
+			}
+			bClipTail = true;
 			break;
 		case '1':
 			bStdout = true;

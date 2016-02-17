@@ -119,6 +119,8 @@ public:
 	int minK;
 	int iCutF, iCutR;
 	bool bCutTail;
+	bool bClipTail;
+	int iClip1, iClip2;
 	bool bFillWithNs;
 
 private:
