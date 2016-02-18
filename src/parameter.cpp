@@ -161,6 +161,7 @@ cParameter::cParameter()
 	iCutF = iCutR = 0;
 	bCutTail = false;
 	
+	bWriteMasked = false;
 	bWriteExcluded = false;
 	bFillWithNs = false;
 }
