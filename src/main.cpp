@@ -2601,9 +2601,10 @@ int main(int argc, char * argv[])
 		char * program = strrchr(argv[0], '/');
 		program = (program == NULL) ? argv[0] : (program + 1);
 		if(iRet == -1){
-			if(para.bEnquireVersion)
+			if(para.bEnquireVersion){
 				para.PrintVersion(stdout);
 				return 0;
+			}
 			else
 				para.PrintUsage(program, stdout);
 		}
