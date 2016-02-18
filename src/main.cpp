@@ -2603,6 +2603,7 @@ int main(int argc, char * argv[])
 		if(iRet == -1){
 			if(para.bEnquireVersion)
 				para.PrintVersion(stdout);
+				return 0;
 			else
 				para.PrintUsage(program, stdout);
 		}
