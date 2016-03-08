@@ -133,8 +133,10 @@ public:
 	void PrintVersion(FILE * fp);
 	void PrintUsage(char * program, FILE *fp);
 	void PrintSimpleUsage(char * program, FILE *fp);
-	void printCommandLine(FILE * fp);
+	void printCommandLine(FILE *fp);
 	void printRelatedFiles(FILE *fp);
+	void printVersion(FILE *fp);
+	void printLogo(FILE *fp, bool bLeadingRtn=false);
 	void printOpt(FILE *fp, bool bLeadingRtn=false);
 	int GetOpt(int argc, char *argv[], char * errMsg);
 };

@@ -1,7 +1,7 @@
 /**********************************************************************
  * Skewer - a fast and accurate adapter trimming tool
  *          using the bit-masked k-difference matching algorithm
- * Copyright (c) 2013-2014 by Hongshan Jiang
+ * Copyright (c) 2013-2016 by Hongshan Jiang
  * hongshan.jiang@gmail.com
  *
  * If you use this program, please cite the paper:
@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.2.0";
-const char * DATE = "Feb 12, 2016";
+const char * VERSION = "0.2.1";
+const char * DATE = "Feb 26, 2016";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -138,6 +138,7 @@ cParameter::cParameter()
 	bFilterNs = false;
 	bFilterUndetermined = false;
 	bRedistribute = false;
+	bWriteMasked = false;
 	bXFile = bYFile = bJFile = false;
 
 	nFileCnt = 0;
@@ -443,6 +444,21 @@ void cParameter::printRelatedFiles(FILE * fp)
 			fprintf(fp, "mapping file:\t%s\n", mapfile.c_str());
 		}
 	}
+}
+
+void cParameter::printVersion(FILE *fp)
+{
+	fprintf(fp, "skewer v%s [%s]\n", VERSION, DATE);
+}
+
+void cParameter::printLogo(FILE *fp, bool bLeadingRtn)
+{
+	if(bLeadingRtn)	fprintf(fp, "\n");
+	fprintf(fp, ".--. .-.\n");
+	fprintf(fp, ": .--': :.-.\n");
+	fprintf(fp, "`. `. : `'.' .--. .-..-..-. .--. .--.\n");
+	fprintf(fp, "_`, :: . `.' '_.': `; `; :' '_.': ..'\n");
+	fprintf(fp, "`.__.':_;:_;`.__.'`.__.__.'`.__.':_;\n");
 }
 
 void cParameter::printOpt(FILE * fp, bool bLeadingRtn)

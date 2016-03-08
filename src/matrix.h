@@ -1,7 +1,7 @@
 /**********************************************************************
  * Skewer - a fast and accurate adapter trimming tool
  *          using the bit-masked k-difference matching algorithm
- * Copyright (c) 2013-2014 by Hongshan Jiang
+ * Copyright (c) 2013-2016 by Hongshan Jiang
  * hongshan.jiang@gmail.com
  *
  * If you use this program, please cite the paper:
@@ -167,14 +167,14 @@ public:
 	static INDEX findAdapter2(char * read, size_t rLen, uchar * qual, size_t qLen);
 	static INDEX findJuncAdapter(char * read, size_t rLen, uchar * qual, size_t qLen);
 
-	static INDEX findAdapterWithPE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen);
+	static bool findAdapterWithPE(char * read, char * read2, size_t rLen, size_t rLen2, uchar * qual, uchar * qual2, size_t qLen, size_t qLen2, INDEX &index, INDEX & index2);
 	static int findAdaptersBidirectionally(char * read, size_t rLen, uchar * qual, size_t qLen,
 			char * read2, size_t rLen2, uchar * qual2, size_t qLen2, INDEX &index, INDEX &index2);
 	static int findAdaptersInARead(char * read, size_t rLen, uchar * qual, size_t qLen, INDEX &index);
 	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2, char * barcodeQual, char * qual, char * qual2);
 	static bool PrepareBarcode(char * barcodeSeq, int bcIdx, char * seq, int len, char * seq2, int len2);
 	static INDEX mergePE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen, size_t startPos, size_t jLen);
-	static void combinePairSeqs(char * read, char * read2, int len, uchar * qual, uchar * qual2, size_t qLen);
+	static bool combinePairSeqs(char * read, char * read2, int len, int len2, uchar * qual, uchar * qual2, int qLen, int qLen2);
 };
 
 #endif // _MATRIX_H

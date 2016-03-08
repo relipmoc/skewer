@@ -1,7 +1,7 @@
 /**********************************************************************
  * Skewer - a fast and accurate adapter trimming tool
  *          using the bit-masked k-difference matching algorithm
- * Copyright (c) 2013-2014 by Hongshan Jiang
+ * Copyright (c) 2013-2016 by Hongshan Jiang
  * hongshan.jiang@gmail.com
  *
  * If you use this program, please cite the paper:
@@ -489,6 +489,11 @@ bool cMatrix::CalcRevCompScore(char * seq, char * seq2, int len, uchar * qual, u
 	double dMaxPenalty = dPenaltyPerErr * len;
 	double penal;
 	CODE code, code2;
+	if(len <= 0){
+		score = (qLen > 0) ? (dMu * qLen / 2) : 0.0;
+		// prefer to detect empty reads even if an error ratio of 0.5 is specified
+		return true;
+	}
 	score = 0.0;
 	for(int i=0; i<len; i++){
 		code = codeMap[uchar(seq[i])];
@@ -718,14 +723,15 @@ INDEX cMatrix::findJuncAdapter(char * read, size_t rLen, uchar * qual, size_t qL
 	return index;
 }
 
-INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar * qual, uchar * qual2, size_t qLen)
+bool cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, size_t rLen2, uchar * qual, uchar * qual2, size_t qLen, size_t qLen2, INDEX &index, INDEX &index2)
 {
 	deque<cAdapter>::iterator it_adapter;
 	cAdapter * pAdapter;
 	cElementSet result, result2;
-	INDEX index;
 	index.pos = int(rLen);
 	index.bc = -1;
+	index2.pos = int(rLen2);
+	index2.bc = -1;
 	int i;
 	for(i=0,it_adapter=firstAdapters.begin(); it_adapter!=firstAdapters.end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
@@ -734,35 +740,22 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 	deque<cAdapter> *pAdapters = (bShareAdapter ? &firstAdapters : &secondAdapters);
 	for(i=0,it_adapter=pAdapters->begin(); it_adapter!=pAdapters->end(); it_adapter++,i++){
 		pAdapter = &(*it_adapter);
-		pAdapter->align(read2, rLen, qual2, qLen, result2, i, false);
+		pAdapter->align(read2, rLen2, qual2, qLen2, result2, i, false);
 	}
-	if(result.empty() || result2.empty()){
-		if(result.empty()){
-			if(result2.empty()){
-				return index;
-			}
-			if(result2.begin()->idx.pos <= 0){
-				index.pos = result2.begin()->idx.pos;
-				index.bc = indices[0][result2.begin()->idx.bc];
-				return index;
-			}
-		}
-		else{ // result2.empty()
-			if(result.begin()->idx.pos <= 0){
-				index.pos = result.begin()->idx.pos;
-				index.bc = indices[result.begin()->idx.bc][0];
-				return index;
-			}
-		}
+	if(result.empty() && result2.empty()){
+		return false;
 	}
+	size_t minQLen = (qLen <= qLen2) ? qLen : qLen2;
 	double maxScore = -1;
 	double score;
 	cElementSet::iterator it_element, it_element2, it_ele, it_ele2;
 	bool bRevComplement;
-	int pos, pos2, cpos, apos;
+	int pos, pos2, cpos, iStart, iStart2;
+	int apos, apos2;
 	int bc, bc2;
 	bc = bc2 = 0;
 	apos = int(rLen);
+	apos2 = int(rLen2);
 	it_element = result.begin();
 	it_element2 = result2.begin();
 	while( true ){
@@ -770,8 +763,17 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 		pos2 = (it_element2 == result2.end()) ? INT_MAX : it_element2->idx.pos;
 		if( (pos == INT_MAX) && (pos2 == INT_MAX) )
 			break;
-		cpos = (pos <= pos2) ? pos : pos2;
-		bRevComplement = CalcRevCompScore(read, read2, cpos, qual, qual2, qLen, score);
+		if(pos <= pos2){ // partial ordering: pos < rLen && pos2 < rLen2 iff. pos2 != INT_MAX
+			cpos = pos;
+			iStart = (pos <= int(rLen2)) ? 0 : (pos - int(rLen2));
+			iStart2 = 0;
+		}
+		else{ // pos > pos2
+			cpos = pos2;
+			iStart = 0;
+			iStart2 = (pos2 <= int(rLen)) ? 0 : (pos2 - int(rLen));
+		}
+		bRevComplement = CalcRevCompScore(read + iStart, read2 + iStart2, cpos, qual + iStart, qual2 + iStart2, minQLen, score);
 		if(pos < pos2){
 			if(bRevComplement){
 				do{
@@ -780,6 +782,7 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 						bc = it_element->idx.bc;
 						bc2 = 0;
 						apos = cpos;
+						apos2 = (cpos <= int(rLen2)) ? cpos : int(rLen2);
 					}
 					it_element++;
 				}while( (it_element != result.end()) && (it_element->idx.pos == cpos) );
@@ -797,7 +800,8 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 						maxScore = score + it_element2->score;
 						bc = 0;
 						bc2 = it_element2->idx.bc;
-						apos = cpos;
+						apos = (cpos <= int(rLen)) ? cpos : int(rLen);
+						apos2 = cpos;
 					}
 					it_element2++;
 				}while( (it_element2 != result2.end()) && (it_element2->idx.pos == cpos) );
@@ -820,6 +824,7 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 						bc = it_ele->idx.bc;
 						bc2 = it_ele2->idx.bc;
 						apos = cpos;
+						apos2 = cpos;
 					}
 				}
 			}
@@ -831,10 +836,18 @@ INDEX cMatrix::findAdapterWithPE(char * read, char * read2, size_t rLen, uchar *
 			}while( (it_element2 != result2.end()) && (it_element2->idx.pos == cpos) );
 		}
 	}
-	index.pos = apos;
-	index.bc = indices[bc][bc2];
-
-	return index;
+	index.bc = index2.bc = indices[bc][bc2];
+	if(index.bc < 0){
+		return false;
+	}
+	if( (apos <= 0) || (apos2 <= 0) ){
+		index.pos = index2.pos = 0;
+	}
+	else{
+		index.pos = apos;
+		index2.pos = apos2;
+	}
+	return true;
 }
 
 // return value
@@ -1067,7 +1080,7 @@ INDEX cMatrix::mergePE(char * read, char * read2, size_t rLen, uchar * qual, uch
 	}
 	if(bRevComplement){ // overlap detected
 		if(qLen > 0)
-			combinePairSeqs(read+pos, read2+pos, clen, qual+pos, qual2+pos, qLen);
+			combinePairSeqs(read+pos, read2+pos, clen, clen, qual+pos, qual2+pos, qLen, qLen);
 		endPos = startPos + jLen;
 		if(endPos + clen >= rLen){ // junction adapter locates in overlapping region
 			index.pos = rLen - (endPos + clen - rLen);
@@ -1101,9 +1114,29 @@ INDEX cMatrix::mergePE(char * read, char * read2, size_t rLen, uchar * qual, uch
 	return index;
 }
 
-void cMatrix::combinePairSeqs(char * read, char * read2, int len, uchar * qual, uchar * qual2, size_t qLen)
+bool cMatrix::combinePairSeqs(char * read, char * read2, int len, int len2, uchar * qual, uchar * qual2, int qLen, int qLen2)
 {
 	CODE code, code2;
+	if(len != len2){
+		int offset;
+		if(len > len2){
+			offset = len - len2;
+			read += offset;
+			len -= offset;
+			qual += offset;
+			qLen -= offset;
+		}
+		else{
+			offset = len2 - len;
+			read2 += offset;
+			qual2 += offset;
+			qLen2 -= offset;
+		}
+	}
+	int minQLen = (qLen < qLen2) ? qLen : qLen2;
+	if(minQLen < len){
+		return false;
+	}
 	for(int i=0; i<len; i++){
 		code = codeMap[uchar(read[i])];
 		code2 = complement[codeMap[uchar(read2[len-1-i])]];
@@ -1114,4 +1147,5 @@ void cMatrix::combinePairSeqs(char * read, char * read2, int len, uchar * qual, 
 			}
 		}
 	}
+	return true;
 }

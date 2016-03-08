@@ -1,7 +1,7 @@
 /**********************************************************************
  * Skewer - a fast and accurate adapter trimming tool
  *          using the bit-masked k-difference matching algorithm
- * Copyright (c) 2013-2014 by Hongshan Jiang
+ * Copyright (c) 2013-2016 by Hongshan Jiang
  * hongshan.jiang@gmail.com
  *
  * If you use this program, please cite the paper:
@@ -196,6 +196,7 @@ public:
 		
 		fpOuts = fpOuts2 = NULL;
 		fpMasked = fpMasked2 = NULL;
+		fpMask = fpMask2 = NULL;
 		fpExcl = fpExcl2 = NULL;
 		fpExcluded = fpExcluded2 = NULL;
 		nFiles = nFiles2 = 0;
@@ -289,18 +290,10 @@ public:
 			this->fpOut2 = fpOuts2[0].fp;
 			this->fpBarcode = fpBarcodes.fp;
 		}
-		if(fpMasked != NULL) {
-			this->fpMask = fpMasked[0].fp;
-		}
-		if(fpMasked2 != NULL) {
-			this->fpMask2 = fpMasked2[0].fp;
-		}
-		if(fpExcluded != NULL) {
-			this->fpExcl = fpExcluded[0].fp;
-		}
-		if(fpExcluded2 != NULL) {
-			this->fpExcl2 = fpExcluded2[0].fp;
-		}
+		this->fpMask = (fpMasked != NULL) ? fpMasked[0].fp : NULL;
+		this->fpMask2 = (fpMasked2 != NULL) ? fpMasked2[0].fp : NULL;
+		this->fpExcl = (fpExcluded != NULL) ? fpExcluded[0].fp : NULL;
+		this->fpExcl2 = (fpExcluded2 != NULL) ? fpExcluded2[0].fp : NULL;
 		this->minAverageQual = (pParameter->minAverageQual > 0) ? (pParameter->baseQual + pParameter->minAverageQual) : 0;
 		this->minEndQual = (pParameter->minEndQual > 0) ? (pParameter->baseQual + pParameter->minEndQual) : 0;
 		this->minLen = pParameter->minLen;
@@ -1339,8 +1332,8 @@ void * mt_worker2(void * data)
 	double cur_ratio;
 	int pos, pos2, mLen;
 
-	INDEX idx;
 	int rLen, qLen;
+	int rLen2, qLen2;
 
 	while(true){
 		while(!pTaskMan->getTask(task)){
@@ -1398,24 +1391,26 @@ void * mt_worker2(void * data)
 				pRecord->tag = TAG_NORMAL;
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
-				idx = cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
-				if(idx.pos < 0){
-					idx.pos = 0;
-				}
-				pos = idx.pos;
-				pRecord->idx = pRecord2->idx = idx;
-				if(pos < rLen){ // trimmed
-					if(pos >= minLen){
-						if(qLen > 0)
-							cMatrix::combinePairSeqs(pRecord->seq.s, pRecord2->seq.s, pos, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
-						if(pStats->bFilterNs && cMatrix::isBlurry(pRecord->seq.s, pos)){
-							pRecord->tag = pRecord2->tag = TAG_BLURRY;
+				rLen2 = pRecord2->seq.n;
+				qLen2 = pRecord2->qual.n;
+				if(cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, rLen2,
+						 (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, qLen2,
+						 pRecord->idx, pRecord2->idx)){ // trimmed
+					pos = pRecord->idx.pos;
+					pos2 = pRecord2->idx.pos;
+					if( (pos >= minLen) && (pos2 >= minLen) ){
+						cMatrix::combinePairSeqs(pRecord->seq.s, pRecord2->seq.s, pos, pos2,
+							(uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, (int)qLen, (int)qLen2);
+						if(pStats->bFilterNs){
+							if(cMatrix::isBlurry(pRecord->seq.s, pos) && cMatrix::isBlurry(pRecord2->seq.s, pos2)){
+								pRecord->tag = pRecord2->tag = TAG_BLURRY;
+							}
 						}
 					}
 				}
 				else{
 					if(pStats->bFilterNs){
-						if( cMatrix::isBlurry(pRecord->seq.s, rLen) && cMatrix::isBlurry(pRecord2->seq.s, rLen) ){
+						if( cMatrix::isBlurry(pRecord->seq.s, rLen) && cMatrix::isBlurry(pRecord2->seq.s, rLen2) ){
 							pRecord->tag = pRecord2->tag = TAG_BLURRY;
 						}
 					}
@@ -1424,7 +1419,7 @@ void * mt_worker2(void * data)
 					if(pRecord->qual.n > 0)
 						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pos, pRecord->qual.n), minEndQual);
 					if(pRecord2->qual.n > 0)
-						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pos, pRecord2->qual.n), minEndQual);
+						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pos2, pRecord2->qual.n), minEndQual);
 				}
 			}
 
@@ -2121,8 +2116,8 @@ void * mt_worker2_mp(void * data)
 	double cur_ratio;
 	int pos, pos2;
 
-	INDEX idx;
 	int rLen, qLen;
+	int rLen2, qLen2;
 
 	while(true){
 		while(!pTaskMan->getTask(task)){
@@ -2180,50 +2175,55 @@ void * mt_worker2_mp(void * data)
 				pRecord->tag = TAG_NORMAL;
 				rLen = pRecord->seq.n;
 				qLen = pRecord->qual.n;
-				idx = cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
-				if(idx.pos < 0){
-					idx.pos = 0;
-				}
-				pos = idx.pos;
-				if(pos < rLen){ // trimmed
-					if(pos >= minLen){
-						if(qLen > 0)
-							cMatrix::combinePairSeqs(pRecord->seq.s, pRecord2->seq.s, pos, (uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen);
-						if(pStats->bFilterNs && cMatrix::isBlurry(pRecord->seq.s, pos)){
-							pRecord->tag = pRecord2->tag = TAG_BLURRY;
+				rLen2 = pRecord2->seq.n;
+				qLen2 = pRecord2->qual.n;
+				if(cMatrix::findAdapterWithPE(pRecord->seq.s, pRecord2->seq.s, rLen, rLen2,
+							(uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, qLen, qLen2,
+						 	pRecord->idx, pRecord2->idx)){ // trimmed
+					pos = pRecord->idx.pos;
+					pos2 = pRecord2->idx.pos;
+					if( (pos >= minLen) && (pos2 >= minLen) ){
+						cMatrix::combinePairSeqs(pRecord->seq.s, pRecord2->seq.s, pos, pos2,
+							(uchar *)pRecord->qual.s, (uchar *)pRecord2->qual.s, (int)qLen, (int)qLen2);
+						if(pStats->bFilterNs){
+							if( cMatrix::isBlurry(pRecord->seq.s, pos) && cMatrix::isBlurry(pRecord2->seq.s, pos2) ){
+								pRecord->tag = pRecord2->tag = TAG_BLURRY;
+							}
 						}
 					}
 				}
 				else{
+					pos = rLen;
+					pos2 = rLen2;
 					if(pStats->bFilterNs){
 						if( cMatrix::isBlurry(pRecord->seq.s, rLen) && cMatrix::isBlurry(pRecord2->seq.s, rLen) ){
 							pRecord->tag = pRecord2->tag = TAG_BLURRY;
 						}
 					}
 				}
-				if( (pRecord->tag == TAG_NORMAL) && (pos >= minLen) ) {
+				if( (pRecord->tag == TAG_NORMAL) && (pos >= minLen) && (pos2 >= minLen) ) {
 					pRecord->idx = cMatrix::findJuncAdapter(pRecord->seq.s, pos, (uchar *)pRecord->qual.s, qLen);
 					if(pRecord->idx.pos < 0){
 						pRecord->idx.pos = 0;
 					}
-					pRecord2->idx = cMatrix::findJuncAdapter(pRecord2->seq.s, pos, (uchar *)pRecord2->qual.s, qLen);
+					pRecord2->idx = cMatrix::findJuncAdapter(pRecord2->seq.s, pos2, (uchar *)pRecord2->qual.s, qLen2);
 					if(pRecord2->idx.pos < 0){
 						pRecord2->idx.pos = 0;
 					}
-					if(pos < rLen){ // trimmed
+					if( (pos < rLen) || (pos2 < rLen2) ) { // trimmed
 						if( (pRecord->idx.bc == 0) || (pRecord2->idx.bc == 0) || (pRecord->idx.bc != pRecord2->idx.bc) ){
 							pRecord->tag = pRecord2->tag = TAG_CONTAMINANT;
 						}
 						else{
-							if(pRecord->idx.pos + pRecord2->idx.pos + cMatrix::junctionLengths[pRecord->idx.bc] != pos){
+							if(pRecord->idx.pos + pRecord2->idx.pos + cMatrix::junctionLengths[pRecord->idx.bc] != max(pos, pos2)){
 								pRecord->tag = pRecord2->tag = TAG_CONTAMINANT;
 							}
 						}
 						if(minEndQual > 0){
 							if(pRecord->qual.n > 0)
-								pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, pRecord->qual.n, minEndQual);
+								pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
 							if(pRecord2->qual.n > 0)
-								pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, pRecord2->qual.n, minEndQual);
+								pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pRecord2->idx.pos, pRecord2->qual.n), minEndQual);
 						}
 					}
 					else{
@@ -2286,11 +2286,6 @@ void * mt_worker2_mp(void * data)
 							}
 						} // not case D
 					} // pos >= rLen
-					pRecord->idx.bc = idx.bc;
-					pRecord2->idx.bc = idx.bc;
-				}
-				else{ // (pRecord->tag != TAG_NORMAL) || (pos < minLen)
-					pRecord2->idx = pRecord->idx = idx;
 				}
 			}
 
@@ -2638,11 +2633,16 @@ int main(int argc, char * argv[])
 			return 1;
 		}
 	}
+	para.printVersion(hLog);
 	para.printCommandLine(hLog);
 	para.printRelatedFiles(hLog);
 
 	para.printOpt(hLog, true);
-	if(!stats.bStdout) para.printOpt(stdout);
+	if(!stats.bStdout){
+		para.printLogo(stdout);
+		para.printVersion(stdout);
+		para.printOpt(stdout);
+	}
 
 	stats.printTime("started", hLog);
 	if(!stats.bStdout) stats.printTime("started", stdout);
