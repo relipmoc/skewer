@@ -167,6 +167,8 @@ public:
 	bool bFillWithNs;
 	bool bCutTail;
 	int iCutF, iCutR;
+	bool bClipTail;
+	int iClip1, iClip2;
 
 	int getMinLen(){
 		return int(minLen);
@@ -192,6 +194,8 @@ public:
 		maxLen = INT_MAX;
 		nBarcodes = 0;
 		iCutF = iCutR = 0;
+		bClipTail = false;
+		iClip1 = iClip2 = 0;
 		pDecorate = "";
 		
 		fpOuts = fpOuts2 = NULL;
@@ -268,6 +272,8 @@ public:
 		nBarcodes = 0;
 		this->iCutF = pParameter->iCutF;
 		this->iCutR = pParameter->iCutR;
+		this->iClip1 = pParameter->iClip1;
+		this->iClip2 = pParameter->iClip2;
 		if(!pParameter->bBarcode)
 			return true;
 		pBarcode = new long[pParameter->output.size()];
@@ -304,6 +310,7 @@ public:
 		this->bFilterUndetermined = pParameter->bFilterUndetermined;
 		this->bRedistribute = pParameter->bRedistribute;
 		this->bCutTail = pParameter->bCutTail;
+		this->bClipTail = pParameter->bClipTail;
 		this->bFillWithNs = pParameter->bFillWithNs;
 	}
 	bool openOutputFiles(cParameter * pParameter){
@@ -892,6 +899,8 @@ void * mt_worker(void * data)
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	bool bCutTail = pStats->bCutTail;
+	bool bClipTail = pStats->bClipTail;
+	int iClip1 = pStats->iClip1;
 	
 	RECORD * pBuffer, *pRecord;
 	TASK task;
@@ -961,6 +970,9 @@ void * mt_worker(void * data)
 				pRecord->idx = cMatrix::findAdapter(pRecord->seq.s, pRecord->seq.n, (uchar *)pRecord->qual.s, pRecord->qual.n);
 				if(pRecord->idx.pos < 0){
 					pRecord->idx.pos = 0;
+				}
+				if(bClipTail && iClip1 > 0 && (pRecord->idx.pos > 0)) {
+					pRecord->idx.pos = max(0, pRecord->idx.pos - iClip1);
 				}
 				if( (minEndQual > 0) && (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){ // not found
 					pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pRecord->idx.pos, pRecord->qual.n), minEndQual);
@@ -1318,7 +1330,10 @@ void * mt_worker2(void * data)
 	int maxLen = pStats->getMaxLen();
 	bool bBarcode = pStats->bBarcode;
 	bool bCutTail = pStats->bCutTail;
-
+	bool bClipTail = pStats->bClipTail;
+	int iClip1 = pStats->iClip1;
+	int iClip2 = pStats->iClip2;
+	
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
 	int size2, rc, rc2, nItemCnt, nCnt;
@@ -1413,6 +1428,14 @@ void * mt_worker2(void * data)
 						if( cMatrix::isBlurry(pRecord->seq.s, rLen) && cMatrix::isBlurry(pRecord2->seq.s, rLen2) ){
 							pRecord->tag = pRecord2->tag = TAG_BLURRY;
 						}
+					}
+				}
+				if(bClipTail && (pRecord->tag == TAG_NORMAL)) {
+					if (iClip1 > 0 && (pRecord->idx.pos > 0)) {
+						pRecord->idx.pos = max(0, pRecord->idx.pos - iClip1);
+					}
+					if (iClip2 > 0 && (pRecord2->idx.pos > 0)) {
+						pRecord2->idx.pos = max(0, pRecord2->idx.pos - iClip2);
 					}
 				}
 				if( (minEndQual > 0) && (pos > 0) && (pRecord->tag == TAG_NORMAL) ){ // trimmed by quality
@@ -1569,7 +1592,10 @@ void * mt_worker2_sep(void * data)
 	bool bFivePrimeEnd = pStats->bFivePrimeEnd;
 	bool bBarcode = pStats->bBarcode;
 	bool bCutTail = pStats->bCutTail;
-
+	bool bClipTail = pStats->bClipTail;
+	int iClip1 = pStats->iClip1;
+	int iClip2 = pStats->iClip2;
+	
 	RECORD *pBuffer, *pRecord, *pRecord2;
 	TASK task;
 	int size2, rc, rc2, nItemCnt, nCnt;
@@ -1650,6 +1676,14 @@ void * mt_worker2_sep(void * data)
 				}
 				if(pRecord2->idx.pos < 0){
 					pRecord2->idx.pos = 0;
+				}
+				if(bClipTail) {
+					if (iClip1 > 0 && (pRecord->idx.pos > 0)) {
+						pRecord->idx.pos = max(0, pRecord->idx.pos - iClip1);
+					}
+					if (iClip2 > 0 && (pRecord2->idx.pos > 0)) {
+						pRecord2->idx.pos = max(0, pRecord2->idx.pos - iClip2);
+					}
 				}
 				if( minEndQual > 0 ){
 					if( (pRecord->idx.pos > 0) && (pRecord->qual.n > 0) ){
@@ -2101,6 +2135,7 @@ void * mt_worker2_mp(void * data)
 	int maxLen2 = (maxLen == INT_MAX) ? INT_MAX : (maxLen * 2);
 	bool bBarcode = pStats->bBarcode;
 	bool bCutTail = pStats->bCutTail;
+	bool bClipTail = pStats->bClipTail;
 	bool bRedistribute = pStats->bRedistribute;
 
 	RECORD *pBuffer, *pRecord, *pRecord2;
