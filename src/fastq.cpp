@@ -92,6 +92,7 @@ int cFQ::readRecord(RECORD *pRecord)
 		// read fasta instead
 		char c = fgetc(in);
 		pRecord->seq.n = 0;
+		pRecord->com.n = 0;
 		while (c != '>' && c != EOF) {
 			if (pRecord->seq.a <= size_t(pRecord->seq.n+1)) {
 				pRecord->seq.s=(char *)realloc(pRecord->seq.s, pRecord->seq.a=(pRecord->seq.a * 3 / 2 + 64));
@@ -283,7 +284,7 @@ enum FASTQ_FORMAT gzformat(char * fileNames[], int nFileCnt)
 		fq.associateFile(cf.fp);
 		format_new = UNKNOWN_FASTQ;
 		while(fq.readRecord() > 0){
-			if(fq.rec.qual.n == 0){
+			if(fq.rec.com.n == 0){
 				format_new = FASTA;
 				break;
 			}

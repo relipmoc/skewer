@@ -49,7 +49,7 @@ inline void OutputTaggedRecord(FILE * fpOut, RECORD * pRecord)
 {
 	// refer to "enum REC_TAG" defined in "fastq.h"
 	const char * TAG_NAME[8] = { "NORMAL", "BLURRY", "BADQUAL", "EMPTY", "SHORT", "CONTAMINANT", "UNDETERMINED", "LONG" };
-	if(pRecord->qual.n > 0){ // fastq
+	if(pRecord->com.n > 0){ // fastq
 		fprintf(fpOut, "@%s TAG=%s\n%s\n+\n%s\n", strtok(pRecord->id.s, "\n"), TAG_NAME[pRecord->tag], pRecord->seq.s, pRecord->qual.s);
 	}
 	else{ // fasta
@@ -66,7 +66,7 @@ inline void OutputMaskedRecord(FILE * fpOut, RECORD * pRecord, int offset, int l
 	for(i=offset+len; i<pRecord->seq.n; i++){
 		pRecord->seq.s[i] = tolower(pRecord->seq.s[i]);
 	}
-	if(pRecord->qual.n > 0) // fastq
+	if(pRecord->com.n > 0) // fastq
 		fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 	else // fasta
 		fprintf(fpOut, ">%s%s\n", pRecord->id.s, pRecord->seq.s);
@@ -74,7 +74,7 @@ inline void OutputMaskedRecord(FILE * fpOut, RECORD * pRecord, int offset, int l
 
 inline void OutputEntireRecord(FILE * fpOut, RECORD * pRecord)
 {
-	if(pRecord->qual.n > 0) // fastq
+	if(pRecord->com.n > 0) // fastq
 		fprintf(fpOut, "@%s%s\n+\n%s\n", pRecord->id.s, pRecord->seq.s, pRecord->qual.s);
 	else // fasta
 		fprintf(fpOut, ">%s%s\n", pRecord->id.s, pRecord->seq.s);
@@ -85,7 +85,7 @@ inline void OutputEntireRecordFilledWithNs(FILE * fpOut, RECORD * pRecord, int o
 	int len2 = pRecord->seq.n - offset - len;
 	string s1 = string(offset, 'N');
 	string s2 = string(len2, 'N');
-	if(pRecord->qual.n > 0){ // fastq
+	if(pRecord->com.n > 0){ // fastq
 		string q1 = string(offset, '!');
 		string q2 = string(len2, '!');
 		fprintf(fpOut, "@%s%s%.*s%s\n+\n%s%.*s%s\n", pRecord->id.s, s1.c_str(), len, pRecord->seq.s + offset, s2.c_str(),
@@ -97,7 +97,7 @@ inline void OutputEntireRecordFilledWithNs(FILE * fpOut, RECORD * pRecord, int o
 
 inline void OutputPartialRecord(FILE * fpOut, RECORD * pRecord, int offset, int len)
 {
-	if(pRecord->qual.n > 0) // fastq
+	if(pRecord->com.n > 0) // fastq
 		fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, len, pRecord->seq.s + offset, len, pRecord->qual.s + offset);
 	else // fasta
 		fprintf(fpOut, ">%s%.*s\n", pRecord->id.s, len, pRecord->seq.s + offset);
@@ -867,12 +867,6 @@ public:
 	mtaux_t * getMultiThreadingPointer(){
 		return mt;
 	}
-	bool validPair(RECORD *pRecord, RECORD *pRecord2){
-		if(!fldEqual(pRecord->id.s, pRecord2->id.s))
-			return false;
-		return (pRecord->seq.n == pRecord2->seq.n) &&
-				(pRecord->qual.n == pRecord2->qual.n);
-	}
 };
 
 void * mt_worker(void * data)
@@ -1409,16 +1403,18 @@ void * mt_worker2(void * data)
 					}
 				}
 				else{
+					pos = rLen;
+					pos2 = rLen2;
 					if(pStats->bFilterNs){
 						if( cMatrix::isBlurry(pRecord->seq.s, rLen) && cMatrix::isBlurry(pRecord2->seq.s, rLen2) ){
 							pRecord->tag = pRecord2->tag = TAG_BLURRY;
 						}
 					}
 				}
-				if( (minEndQual > 0) && (pos > 0) && (pRecord->tag == TAG_NORMAL) ){ // trimmed by quality
-					if(pRecord->qual.n > 0)
+				if( (minEndQual > 0) && (pRecord->tag == TAG_NORMAL) ){ // trimmed by quality
+					if( (pRecord->qual.n > 0) && (pos > 0) )
 						pRecord->idx.pos = cMatrix::trimByQuality((uchar *)pRecord->qual.s, min(pos, pRecord->qual.n), minEndQual);
-					if(pRecord2->qual.n > 0)
+					if( (pRecord2->qual.n > 0) && (pos2 > 0) )
 						pRecord2->idx.pos = cMatrix::trimByQuality((uchar *)pRecord2->qual.s, min(pos2, pRecord2->qual.n), minEndQual);
 				}
 			}
@@ -2044,7 +2040,7 @@ void * mt_worker2_ap(void * data)
 					}
 				}
 				if( (fpBarcode != NULL) && (pRecord->idx.bc >= 0) ){
-					if( (pRecord->qual.n > 0) && (pRecord2->qual.n > 0) ){ // fastq
+					if( (pRecord->com.n > 0) && (pRecord2->com.n > 0) ){ // fastq
 						if(cMatrix::PrepareBarcode(barcodeSeq, pRecord->idx.bc, pRecord->seq.s, iCutF, pRecord2->seq.s, iCutR, barcodeQua, pRecord->qual.s, pRecord2->qual.s)){
 							fprintf(fpBarcode, "@%s%s\n+\n%s\n", pRecord->id.s, barcodeSeq, barcodeQua);
 						}
@@ -2385,12 +2381,11 @@ void * mt_worker2_mp(void * data)
 					}
 				}
 				rLen = pRecord->seq.n;
-				qLen = pRecord->qual.n;
 				if( (fpMask != NULL) && (fpMask2 != NULL) ){
 					OutputMaskedRecord(fpMask, pRecord, 0, pos);
 					OutputMaskedRecord(fpMask2, pRecord2, 0, pos2);
 				}
-				if(qLen > 0){ // fastq
+				if(pRecord->com.n > 0){ // fastq
 					if(pos <= rLen){
 						fprintf(fpOut, "@%s%.*s\n+\n%.*s\n", pRecord->id.s, pos, pRecord->seq.s, pos, pRecord->qual.s);
 					}
@@ -2596,10 +2591,11 @@ int main(int argc, char * argv[])
 		char * program = strrchr(argv[0], '/');
 		program = (program == NULL) ? argv[0] : (program + 1);
 		if(iRet == -1){
-			if(para.bEnquireVersion)
+			if(para.bEnquireVersion){
 				para.PrintVersion(stdout);
-			else
-				para.PrintUsage(program, stdout);
+				return 0;
+			}
+			para.PrintUsage(program, stdout);
 		}
 		else{
 			fprintf(stderr, "%s (%s): %s\n\n", program, para.version, errMsg);

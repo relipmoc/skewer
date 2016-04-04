@@ -40,8 +40,8 @@
 
 using namespace std;
 
-const char * VERSION = "0.2.1";
-const char * DATE = "Feb 26, 2016";
+const char * VERSION = "0.2.2";
+const char * DATE = "April 4, 2016";
 const char * AUTHOR = "Hongshan Jiang";
 
 const char * ILLUMINA_ADAPTER_PREFIX = "AGATCGGAAGAGC";
@@ -138,7 +138,6 @@ cParameter::cParameter()
 	bFilterNs = false;
 	bFilterUndetermined = false;
 	bRedistribute = false;
-	bWriteMasked = false;
 	bXFile = bYFile = bJFile = false;
 
 	nFileCnt = 0;
@@ -162,6 +161,7 @@ cParameter::cParameter()
 	iCutF = iCutR = 0;
 	bCutTail = false;
 	
+	bWriteMasked = false;
 	bWriteExcluded = false;
 	bFillWithNs = false;
 }
