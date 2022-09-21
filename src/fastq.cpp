@@ -324,7 +324,7 @@ void gzstrncpy (char * dest, const char * src, int n)
 
 void versatile_gettime(struct timespec *tp)
 {
-#ifdef __MACH__
+#if defined(__MACH__) && defined(__APPLE__)
 	static double orwl_timebase = 0.0;
 	static uint64_t orwl_timestart = 0; 
 	if(!orwl_timestart){

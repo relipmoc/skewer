@@ -46,7 +46,7 @@
 #include <limits.h>
 
 #include <time.h>
-#ifdef __MACH__
+#if defined(__MACH__) && defined(__APPLE__)
 #include <mach/mach_time.h>
 #define ORWL_NANO (+1.0E-9)
 #define ORWL_GIGA UINT64_C(1000000000)
